@@ -465,12 +465,15 @@ function handle_add_gym(msg, args) {
 function handle_raid(msg, args) {
   let [handle] = args;
 
+  let now = new Date(Date.now());
+
   conn.query(
     'SELECT * FROM gyms ' +
     '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
     '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
-    '   WHERE handle LIKE ?',
-    [`%${handle}%`],
+    '   WHERE gyms.handle LIKE ? ' +
+    '   AND calls.time > ?',
+    [`%${handle}%`, now],
 
     errwrap(function (results, fields) {
       if (results.length < 1) {
@@ -478,8 +481,6 @@ function handle_raid(msg, args) {
         return log_invalid(msg, `No gyms/raids matching ${handle}.`);
       }
       let [raid] = results;
-
-      let now = new Date(Date.now());
 
       if (raid.despawn < now) {
         conn.query(
