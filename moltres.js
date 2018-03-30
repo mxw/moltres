@@ -745,7 +745,9 @@ function handle_request(msg, request, args) {
 function handle_request_with_check(msg, request, args) {
   let user_id = msg.author.id;
 
-  if (!(request in cmds)) return;
+  if (!(request in cmds)) {
+    return log_invalid(msg, `Invalid request \`${request}\`.`);
+  }
 
   if (config.admin_ids.has(user_id) ||
       cmds[request].perms === Permission.NONE) {
