@@ -61,7 +61,7 @@ const cmd_order = [
   'help',
   'gym', 'ls-gyms', 'add-gym',
   'raid', 'ls-raids', 'spot-egg', 'spot-raid',
-//  'call-time', 'join', 'unjoin',
+  'call-time', //'join', 'unjoin',
 ];
 
 const cmds = {
@@ -113,13 +113,13 @@ const cmds = {
     args: [3, 3],
     desc: 'Announce a hatched raid boss.',
   },
-  /*
   'call-time': {
     perms: Permission.NONE,
     usage: '<gym-handle> <HH:MM> [num-accounts]',
     args: [2, 3],
     desc: 'Call a time for a raid.',
   },
+  /*
   'join': {
     perms: Permission.NONE,
     usage: '<gym-handle> [HH:MM] [num-accounts]',
@@ -251,6 +251,16 @@ function log_error(msg, str, reacc = null) {
 function usage_string(cmd) {
   if (!(cmd in cmds)) return null;
   return `Usage: \`${cmd} ${cmds[cmd].usage}\``;
+}
+
+/*
+ * Capitalize the first letter of a raid boss's name, or return 'unknown' if
+ * the boss is null.
+ */
+function fmt_boss(boss) {
+  return boss !== null
+    ? boss.charAt(0).toUpperCase() + boss.substr(1)
+    : 'unknown';
 }
 
 /*
@@ -463,7 +473,10 @@ function handle_raid(msg, args) {
     [`%${handle}%`],
 
     errwrap(function (results, fields) {
-      if (!check_one_gym(msg, handle, results)) return;
+      if (results.length < 1) {
+        chain_reaccs(msg, 'no_entry_sign');
+        return log_invalid(msg, `No gyms/raids matching ${handle}.`);
+      }
       let [raid] = results;
 
       let now = new Date(Date.now());
@@ -483,12 +496,22 @@ function handle_raid(msg, args) {
 
       if (now >= hatch) {
         output +=`
-raid: ${raid.boss === null ? 'unknown' : raid.boss} (T${raid.tier})
+raid: **${fmt_boss(raid.boss)}** (T${raid.tier})
 despawn: ${time_to_string(raid.despawn)}`;
       } else {
         output +=`
-raid egg: T${raid.tier}
+raid egg: **T${raid.tier}**
 hatch: ${time_to_string(hatch)}`;
+      }
+
+      output += '\ncall times:';
+
+      // Now grab all the existing raid calls.
+      for (let call of results) {
+        let member = msg.guild.members.get(call.caller);
+        output +=
+          `\n  - ${time_to_string(call.time)} ` +
+          `with ${member ? member.user.tag : 'unknown'}`;
       }
 
       do_send(msg.channel, output)
@@ -520,7 +543,7 @@ function handle_ls_raids(msg, args) {
       let output = `Active raids in **${role_name}**:\n`;
       for (let raid of results) {
         let hatch = hatch_from_despawn(raid.despawn);
-        let boss = hatch > now ? 'egg' : (raid.boss ? raid.boss : 'unknown');
+        let boss = hatch > now ? 'egg' : fmt_boss(raid.boss);
         let timer_str = hatch > now
           ? `hatches at ${time_to_string(hatch)}`
           : `despawns at ${time_to_string(raid.despawn)}`
@@ -597,10 +620,6 @@ function handle_call_time(msg, args) {
   let later = new Date(call_time.getTime());
   later.setMinutes(later.getMinutes() + 45);
 
-  console.log(call_time);
-
-  console.log('wahtu');
-
   conn.query(
     'INSERT INTO calls (raid_id, caller, time) ' +
     '   SELECT raids.gym_id, ?, ? FROM gyms INNER JOIN raids ' +
@@ -623,8 +642,7 @@ function handle_call_time(msg, args) {
       );
 
       conn.query(
-        'SELECT gyms.region, gyms.silent, raids.* FROM gyms ' +
-        '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
+        'SELECT * FROM gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
         '   WHERE handle LIKE ?',
         [`%${handle}%`],
 
@@ -632,15 +650,21 @@ function handle_call_time(msg, args) {
           if (!check_one_gym(msg, handle, results)) return;
           let [raid] = results;
 
-          let role = get_role(msg, raid.region);  // wrong
+          let role = msg.guild.roles.get(raid.region);
+          if (role === null) {
+            return log_invalid(msg, `Malformed gym entry for ${raid.handle}.`);
+          }
 
-          do_send(msg.channel,
-            `${role ? role.toString() + ' ' : ''}` +
-            `T${raid.tier} ${raid.boss ? raid.boss + ' ' : ''}` +
-            `raid at \`[${raid.handle}]\` ${raid.name} ` +
-            `called for ${time_to_string(call_time)} by ` +
-            `sup`
-          );
+          let role_str = raid.silent ? role.name : role.toString();
+          let boss_str = later > raid.despawn
+            ? `${fmt_boss(raid.boss)} raid`
+            : 'egg';
+
+          let output =
+            `${role_str} **T${raid.tier} ${boss_str}** ` +
+            `at \`[${raid.handle}]\` ` +
+            `called for ${time_to_string(call_time)} by ${msg.author}`;
+          do_send(msg.channel, output);
         })
       );
     })
@@ -677,11 +701,9 @@ function handle_request(msg, request, args) {
     case 'spot-egg':  return handle_spot_egg(msg, args);
     case 'spot-raid': return handle_spot_raid(msg, args);
 
-      /*
     case 'call-time': return handle_call_time(msg, args);
     case 'join':      return handle_join(msg, args);
     case 'unjoin':    return handle_unjoin(msg, args);
-    */
     default:
       return log_invalid(msg, `Invalid request ${request}.`);
   }
