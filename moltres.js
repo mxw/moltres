@@ -195,7 +195,6 @@ const emoji_by_name = {
   cry: '😢',
   no_entry_sign: '🚫',
   no_good: '🙅',
-  skull_crossbones: '☠️',
 };
 
 /*
@@ -260,7 +259,7 @@ function react_success(msg, reacc = null) {
   log_impl(msg, null, reacc || 'approved');
 };
 function log_error(msg, str, reacc = null) {
-  log_impl(msg, str, reacc || 'skull_crossbones');
+  log_impl(msg, str, reacc || 'no_good');
 };
 function log_invalid(msg, str) {
   log_impl(msg, str, null);
