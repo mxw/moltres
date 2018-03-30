@@ -290,8 +290,8 @@ function do_send(channel, content) {
 function errwrap(fn = null) {
   return function (err, ...rest) {
     if (err) {
-      console.error(e);
-      return log_error(msg, `MySQL error: ${e.code}.`);
+      console.error(err);
+      return log_error(msg, `MySQL error: ${err.code}.`);
     }
     if (fn !== null) fn(...rest);
   };
@@ -387,7 +387,7 @@ function handle_help(msg, args) {
 function check_one_gym(msg, handle, results) {
   if (results.length < 1) {
     chain_reaccs(msg, 'cry');
-    do_send(msg, `Nothing found matching \`${handle}\`.`);
+    do_send(msg.channel, `Nothing found matching \`${handle}\`.`);
     return false;
   } else if (results.length > 1) {
     log_invalid(msg, `Multiple gyms/raids matching \`${handle}\`.`);
@@ -491,7 +491,7 @@ function handle_raid(msg, args) {
     errwrap(function (results, fields) {
       if (results.length < 1) {
         chain_reaccs(msg, 'no_entry_sign');
-        return do_send(msg, `No raids matching ${handle}.`);
+        return do_send(msg.channel, `No raids matching ${handle}.`);
       }
       let [raid] = results;
 
