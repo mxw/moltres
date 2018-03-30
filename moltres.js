@@ -59,8 +59,9 @@ const Permission = {
 
 const cmd_order = [
   'help',
-  'gym', 'add-gym',
-  'raid', 'spot-egg', 'spot-raid',
+  'gym', 'ls-gyms', 'add-gym',
+  'raid', 'ls-raids', 'spot-egg', 'spot-raid',
+//  'call-time', 'join', 'unjoin',
 ];
 
 const cmds = {
@@ -76,6 +77,12 @@ const cmds = {
     args: [1, 1],
     desc: 'Get information about a gym.',
   },
+  'ls-gyms': {
+    perms: Permission.NONE,
+    usage: '<region-name>',
+    args: [1, 100],
+    desc: 'List all gyms in a region.',
+  },
   'add-gym': {
     perms: Permission.TABLE,
     usage: '<handle> <region> <lat> <lng> <name>',
@@ -88,18 +95,44 @@ const cmds = {
     args: [1, 1],
     desc: 'Get information about the current raid at a gym.',
   },
+  'ls-raids': {
+    perms: Permission.NONE,
+    usage: '<region-name>',
+    args: [1, 100],
+    desc: 'List all active raids in a region.',
+  },
   'spot-egg': {
     perms: Permission.NONE,
-    usage: '<gym-handle> <tier> <MM:SS-til-hatch>',
+    usage: '<gym-handle> <tier> <time-til-hatch MM:SS>',
     args: [3, 3],
-    desc: 'Announce a raid egg.'
+    desc: 'Announce a raid egg.',
   },
   'spot-raid': {
     perms: Permission.NONE,
-    usage: '<gym-handle> <boss> <MM:SS-til-despawn>',
+    usage: '<gym-handle> <boss> <time-til-despawn MM:SS>',
     args: [3, 3],
-    desc: 'Announce a hatched raid boss.'
+    desc: 'Announce a hatched raid boss.',
   },
+  /*
+  'call-time': {
+    perms: Permission.NONE,
+    usage: '<gym-handle> <HH:MM> [num-accounts]',
+    args: [2, 3],
+    desc: 'Call a time for a raid.',
+  },
+  'join': {
+    perms: Permission.NONE,
+    usage: '<gym-handle> [HH:MM] [num-accounts]',
+    args: [1, 3],
+    desc: 'Join a called raid time.',
+  },
+  'unjoin': {
+    perms: Permission.NONE,
+    usage: '<gym-handle> [HH:MM] [num-accounts]',
+    args: [1, 3],
+    desc: 'Back out of a raid.',
+  },
+  */
 };
 
 const unrestricted_cmds = new Set([
@@ -139,8 +172,9 @@ const raid_tiers = {
  * Avoid polluting the rest of the file with emoji.
  */
 const emoji_by_name = {
-  no_good: '🙅',
   no_entry_sign: '🚫',
+  no_good: '🙅',
+  zero: '0️⃣',
 };
 
 /*
@@ -165,6 +199,13 @@ function chain_reaccs(msg, ...reaccs) {
 }
 
 /*
+ * Get a Role by `name' for the guild `msg' belongs to.
+ */
+function get_role(msg, name) {
+  return msg.guild.roles.find('name', name);
+}
+
+/*
  * Count all the mentions in `msg'.
  */
 function total_mentions(msg) {
@@ -181,7 +222,7 @@ function total_mentions(msg) {
 function log_impl(msg, str, reacc) {
   if (str !== null) {
     let log = moltres.channels.get(config.log_id);
-    log.send(str);
+    do_send(log, str);
   }
   if (reacc !== null) {
     msg.react(reacc).catch(console.error);
@@ -212,6 +253,13 @@ function usage_string(cmd) {
   return `Usage: \`${cmd} ${cmds[cmd].usage}\``;
 }
 
+/*
+ * Wrapper around send().
+ */
+function do_send(channel, content) {
+  return channel.send(content).catch(console.error);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // MySQL utilities.
 
@@ -219,12 +267,12 @@ function usage_string(cmd) {
  * MySQL handler which logs any error, or otherwise delegates to a callback.
  */
 function errwrap(fn = null) {
-  return function (err, results, fields) {
+  return function (err, ...rest) {
     if (err) {
       console.error(e);
       return log_error(msg, `MySQL error: ${e.code}.`);
     }
-    if (fn !== null) fn(results, fields);
+    if (fn !== null) fn(...rest);
   };
 }
 
@@ -242,6 +290,24 @@ function parse_timer(timer) {
     mins: parseInt(matches[1]),
     secs: parseInt(matches[2]),
   };
+}
+
+/*
+ * Parse a time given by HH:MM as a Date object.
+ */
+function parse_hour_minute(time) {
+  // Re-use parse_timer() even though it thinks in MM:SS.
+  let meta = parse_timer(time);
+  if (meta === null) return null;
+
+  let now = new Date(Date.now());
+  return new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    meta.mins + (now.getHours() - (now.getHours() % 12)),
+    meta.secs
+  );
 }
 
 /*
@@ -286,11 +352,26 @@ function handle_help(msg, args) {
     let [cmd] = args;
     out = `\`${cmd}\`:  ${cmds[cmd].desc}\n${usage_string(cmd)}`;
   }
-  msg.channel.send(out.trim());
+  do_send(msg.channel, out.trim());
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // Gym handlers.
+
+/*
+ * Helper for error-handling cases where zero or multiple gyms are found.
+ *
+ * Returns true if we have a single result, else false.
+ */
+function check_one_gym(msg, handle, results) {
+  if (results.length < 1) {
+    chain_reaccs(msg, 'no_entry_sign');
+    return log_invalid(msg, `No gyms/raids matching ${handle}.`);
+  } else if (results.length > 1) {
+    return log_invalid(msg, `Multiple gyms/raids matching ${handle}.`);
+  }
+  return true;
+}
 
 /*
  * Stringify a row from the gyms table.
@@ -310,14 +391,35 @@ function handle_gym(msg, args) {
     [`%${handle}%`],
 
     errwrap(function (results, fields) {
-      if (results.length !== 1) {
-        return log_invalid(msg, `Multiple gyms matching ${handle}.`);
-      }
+      if (!check_one_gym(msg, handle, results)) return;
       let [gym] = results;
 
-      msg.channel.send(gym_row_to_string(msg, gym)).then(m => {
-        log_success(msg, `Handled \`gym\` from ${msg.author.tag}.`);
-      }).catch(console.error);
+      do_send(msg.channel, gym_row_to_string(msg, gym))
+      .then(m => log_success(msg, `Handled \`gym\` from ${msg.author.tag}.`));
+    })
+  );
+}
+
+function handle_ls_gyms(msg, args) {
+  let role_name = args.join(' ');
+  let role = get_role(msg, role_name);
+  if (role === null) {
+    return log_invalid(msg, `Invalid region name ${role_name}.`);
+  }
+
+  conn.query(
+    'SELECT * FROM gyms WHERE region = ?', [role.id],
+
+    errwrap(function (results, fields) {
+      if (results.length === 0) {
+        return chain_reaccs(msg, 'zero');
+      }
+
+      let output = `Gyms in **${role_name}**:\n`;
+      for (let gym of results) {
+        output += `\n\`[${gym.handle}]\` ${gym.name}`;
+      }
+      do_send(msg.channel, output);
     })
   );
 }
@@ -347,14 +449,6 @@ function handle_add_gym(msg, args) {
   );
 }
 
-function handle_edit_gym(msg, args) {
-  return false;
-}
-
-function handle_rm_gym(msg, args) {
-  return false;
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 // Raid handlers.
 
@@ -362,20 +456,19 @@ function handle_raid(msg, args) {
   let [handle] = args;
 
   conn.query(
-    'SELECT * FROM gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
-    'WHERE handle LIKE ?',
+    'SELECT * FROM gyms ' +
+    '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
+    '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
+    '   WHERE handle LIKE ?',
     [`%${handle}%`],
 
     errwrap(function (results, fields) {
-      if (results.length !== 1) {
-        chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
-      }
+      if (!check_one_gym(msg, handle, results)) return;
       let [raid] = results;
 
       let now = new Date(Date.now());
 
       if (raid.despawn < now) {
-        console.log('yo');
         conn.query(
           'DELETE FROM raids WHERE gym_id = ?',
           [raid.gym_id],
@@ -398,9 +491,44 @@ raid egg: T${raid.tier}
 hatch: ${time_to_string(hatch)}`;
       }
 
-      msg.channel.send(output).then(m => {
-        log_success(msg, `Handled \`raid\` from ${msg.author.tag}.`);
-      }).catch(console.error);
+      do_send(msg.channel, output)
+      .then(m => log_success(msg, `Handled \`raid\` from ${msg.author.tag}.`));
+    })
+  );
+}
+
+function handle_ls_raids(msg, args) {
+  let role_name = args.join(' ');
+  let role = get_role(msg, role_name);
+  if (role === null) {
+    return log_invalid(msg, `Invalid region name ${role_name}.`);
+  }
+
+  let now = new Date(Date.now());
+
+  conn.query(
+    'SELECT * FROM gyms INNER JOIN raids ' +
+    'ON gyms.id = raids.gym_id ' +
+    'WHERE gyms.region = ? AND raids.despawn > ?',
+    [role.id, now],
+
+    errwrap(function (results, fields) {
+      if (results.length === 0) {
+        return chain_reaccs(msg, 'zero');
+      }
+
+      let output = `Active raids in **${role_name}**:\n`;
+      for (let raid of results) {
+        let hatch = hatch_from_despawn(raid.despawn);
+        let boss = hatch > now ? 'egg' : (raid.boss ? raid.boss : 'unknown');
+        let timer_str = hatch > now
+          ? `hatches at ${time_to_string(hatch)}`
+          : `despawns at ${time_to_string(raid.despawn)}`
+
+        output +=
+          `\n\`[${raid.handle}]\` **T${raid.tier} ${boss}** ${timer_str}`;
+      }
+      do_send(msg.channel, output);
     })
   );
 }
@@ -419,7 +547,7 @@ function handle_spot(msg, handle, tier, boss, timer) {
 
   let pop = pop_from_despawn(despawn);
 
-  let foo = conn.query(
+  conn.query(
     'REPLACE INTO raids (gym_id, tier, boss, despawn, spotter) ' +
     '   SELECT gyms.id, ?, ?, ?, ? FROM gyms ' +
     '   WHERE ' +
@@ -433,11 +561,12 @@ function handle_spot(msg, handle, tier, boss, timer) {
     [tier, boss, despawn, msg.author.id, `%${handle}%`, pop],
     errwrap((..._) => react_success(msg))
   );
-  console.log(foo.sql);
 }
 
 function handle_spot_egg(msg, args) {
   let [handle, tier, timer] = args;
+
+  if (tier.startsWith('T')) tier = tier.substr(1);
 
   handle_spot(msg, handle, tier, null, timer);
 }
@@ -451,6 +580,77 @@ function handle_spot_raid(msg, args) {
   }
 
   handle_spot(msg, handle, raid_tiers[boss], boss, timer);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Raid calls.
+
+function handle_call_time(msg, args) {
+  let [handle, time, naccts] = args;
+
+  let call_time = parse_hour_minute(time);
+  if (call_time === null) {
+    return log_invalid(msg, `Unrecognized HH:MM time ${time}.`);
+  }
+  naccts = naccts || 1;
+
+  let later = new Date(call_time.getTime());
+  later.setMinutes(later.getMinutes() + 45);
+
+  console.log(call_time);
+
+  console.log('wahtu');
+
+  conn.query(
+    'INSERT INTO calls (raid_id, caller, time) ' +
+    '   SELECT raids.gym_id, ?, ? FROM gyms INNER JOIN raids ' +
+    '     ON gyms.id = raids.gym_id ' +
+    '   WHERE gyms.handle LIKE ? ' +
+    '   AND raids.despawn > ? ' +
+    '   AND raids.despawn <= ?',
+    [msg.author.id, call_time, `%${handle}%`, call_time, later],
+
+    errwrap(function (result) {
+      let call_id = result.insertId;
+
+      conn.query(
+        'INSERT INTO rsvps SET ?',
+        { call_id: call_id,
+          user_id: msg.author.id,
+          accounts: naccts,
+          maybe: false },
+        errwrap()
+      );
+
+      conn.query(
+        'SELECT gyms.region, gyms.silent, raids.* FROM gyms ' +
+        '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
+        '   WHERE handle LIKE ?',
+        [`%${handle}%`],
+
+        errwrap(function (results, fields) {
+          if (!check_one_gym(msg, handle, results)) return;
+          let [raid] = results;
+
+          let role = get_role(msg, raid.region);  // wrong
+
+          do_send(msg.channel,
+            `${role ? role.toString() + ' ' : ''}` +
+            `T${raid.tier} ${raid.boss ? raid.boss + ' ' : ''}` +
+            `raid at \`[${raid.handle}]\` ${raid.name} ` +
+            `called for ${time_to_string(call_time)} by ` +
+            `sup`
+          );
+        })
+      );
+    })
+  );
+}
+
+function handle_join(msg, args) {
+}
+
+function handle_unjoin(msg, args) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -469,13 +669,19 @@ function handle_request(msg, request, args) {
     case 'help':      return handle_help(msg, args);
 
     case 'gym':       return handle_gym(msg, args);
+    case 'ls-gyms':   return handle_ls_gyms(msg, args);
     case 'add-gym':   return handle_add_gym(msg, args);
-    case 'edit-gym':  return handle_edit_gym(msg, args);
-    case 'rm-gym':    return handle_rm_gym(msg, args);
 
     case 'raid':      return handle_raid(msg, args);
+    case 'ls-raids':  return handle_ls_raids(msg, args);
     case 'spot-egg':  return handle_spot_egg(msg, args);
     case 'spot-raid': return handle_spot_raid(msg, args);
+
+      /*
+    case 'call-time': return handle_call_time(msg, args);
+    case 'join':      return handle_join(msg, args);
+    case 'unjoin':    return handle_unjoin(msg, args);
+    */
     default:
       return log_invalid(msg, `Invalid request ${request}.`);
   }
