@@ -175,9 +175,9 @@ const raid_tiers = {
 // Discord utilities.
 
 /*
- * Wrapper around send().
+ * Wrapper around send() that swallows exceptions.
  */
-function do_send(channel, content) {
+function send_quiet(channel, content) {
   return channel.send(content).catch(console.error);
 }
 
@@ -185,7 +185,7 @@ function do_send(channel, content) {
  * Re-load a message for performing further operations.
  */
 function refresh(msg) {
-  return msg.channel.fetchMessage(msg.id).catch(console.error);
+  return msg.channel.fetchMessage(msg.id);
 }
 
 /*
@@ -212,12 +212,13 @@ function chain_reaccs(msg, ...reaccs) {
   let [head, ...tail] = reaccs;
 
   let emoji = emoji_by_name[head] || get_emoji(head);
+  let promise = msg.react(emoji);
 
-  refresh(msg).then(m => {
-    m.react(emoji)
-      .then(r => { chain_reaccs(r.message, ...tail); })
-      .catch(console.error);
-  });
+  for (let name of tail) {
+    let emoji = emoji_by_name[name] || get_emoji(name);
+    promise = promise.then(r => r.message.react(emoji));
+  }
+  promise.catch(console.error);
 }
 
 /*
@@ -244,7 +245,7 @@ function total_mentions(msg) {
 function log_impl(msg, str, reacc) {
   if (str !== null) {
     let log = moltres.channels.get(config.log_id);
-    do_send(log, str);
+    send_quiet(log, str);
   }
   if (reacc !== null) chain_reaccs(msg, reacc);
 };
@@ -265,7 +266,7 @@ function log_invalid(msg, str) {
   log_impl(msg, str, null);
 
   msg.author.createDM()
-    .then(dm => do_send(dm, str))
+    .then(dm => dm.send(str))
     .catch(console.error);
 
   msg.delete().catch(console.error);
@@ -301,7 +302,11 @@ function errwrap(msg, fn = null) {
       console.error(err);
       return log_error(msg, `MySQL error: ${err.code}.`);
     }
-    if (fn !== null) refresh(msg).then(m => fn(m, ...rest));
+    if (fn !== null) {
+      refresh(msg)
+        .then(m => fn(m, ...rest))
+        .catch(console.error);
+    }
   };
 }
 
@@ -381,10 +386,11 @@ function handle_help(msg, args) {
     let [cmd] = args;
     out = `\`${cmd}\`:  ${cmds[cmd].desc}\n${usage_string(cmd)}`;
   }
-  do_send(msg.channel, out.trim());
+  send_quiet(msg.channel, out.trim());
 }
 
 function handle_test(msg, args) {
+  chain_reaccs(msg, 'cry', 'no_good', 'approved', 'RaidEgg');
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -398,7 +404,7 @@ function handle_test(msg, args) {
 function check_one_gym(msg, handle, results) {
   if (results.length < 1) {
     chain_reaccs(msg, 'cry');
-    do_send(msg.channel, `Nothing found matching \`${handle}\`.`);
+    send_quiet(msg.channel, `Nothing found matching \`${handle}\`.`);
     return false;
   } else if (results.length > 1) {
     log_invalid(msg, `Multiple gyms/raids matching \`${handle}\`.`);
@@ -428,8 +434,9 @@ function handle_gym(msg, args) {
       if (!check_one_gym(msg, handle, results)) return;
       let [gym] = results;
 
-      do_send(msg.channel, gym_row_to_string(msg, gym))
-      .then(m => log_success(msg, `Handled \`gym\` from ${msg.author.tag}.`));
+      msg.channel.send(gym_row_to_string(msg, gym))
+        .then(m => log_success(msg, `Handled \`gym\` from ${msg.author.tag}.`))
+        .catch(console.error);
     })
   );
 }
@@ -453,7 +460,7 @@ function handle_ls_gyms(msg, args) {
       for (let gym of results) {
         output += `\n\`[${gym.handle}]\` ${gym.name}`;
       }
-      do_send(msg.channel, output);
+      send_quiet(msg.channel, output);
     })
   );
 }
@@ -502,7 +509,7 @@ function handle_raid(msg, args) {
     errwrap(msg, function (msg, results) {
       if (results.length < 1) {
         chain_reaccs(msg, 'no_entry_sign');
-        return do_send(msg.channel, `No raids matching ${handle}.`);
+        return send_quiet(msg.channel, `No raids matching ${handle}.`);
       }
       let [raid] = results;
 
@@ -541,8 +548,9 @@ hatch: ${time_to_string(hatch)}`;
         }
       }
 
-      do_send(msg.channel, output)
-      .then(m => log_success(msg, `Handled \`raid\` from ${msg.author.tag}.`));
+      msg.channel.send(output)
+        .then(m => log_success(msg, `Handled \`raid\` from ${msg.author.tag}.`))
+        .catch(console.error);
     })
   );
 }
@@ -578,7 +586,7 @@ function handle_ls_raids(msg, args) {
         output +=
           `\n\`[${raid.handle}]\` **T${raid.tier} ${boss}** ${timer_str}`;
       }
-      do_send(msg.channel, output);
+      send_quiet(msg.channel, output);
     })
   );
 }
@@ -700,7 +708,7 @@ function handle_call_time(msg, args) {
             `${role_str} **T${raid.tier} ${fmt_boss(raid.boss)}** raid ` +
             `at \`[${raid.handle}]\` ` +
             `called for ${time_to_string(call_time)} by ${msg.author}`;
-          do_send(msg.channel, output);
+          send_quiet(msg.channel, output);
         })
       );
     })
