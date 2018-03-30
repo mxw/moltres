@@ -172,8 +172,10 @@ const raid_tiers = {
  * Avoid polluting the rest of the file with emoji.
  */
 const emoji_by_name = {
+  cry: '😢',
   no_entry_sign: '🚫',
   no_good: '🙅',
+  skull_crossbones: '☠️',
 };
 
 /*
@@ -227,9 +229,7 @@ function log_impl(msg, str, reacc) {
     let log = moltres.channels.get(config.log_id);
     do_send(log, str);
   }
-  if (reacc !== null) {
-    msg.react(reacc).catch(console.error);
-  }
+  if (reacc !== null) chain_reaccs(msg, reacc);
 };
 
 /*
@@ -239,13 +239,21 @@ function log_success(msg, str, reacc = null) {
   log_impl(msg, str, reacc);
 };
 function react_success(msg, reacc = null) {
-  log_impl(msg, null, reacc || get_emoji('approved'));
-};
-function log_invalid(msg, str, reacc = null) {
-  log_impl(msg, str, reacc || emoji_by_name.no_good);
+  log_impl(msg, null, reacc || 'approved');
 };
 function log_error(msg, str, reacc = null) {
-  log_impl(msg, str, reacc || emoji_by_name.no_good);
+  log_impl(msg, str, reacc || 'skull_crossbones');
+};
+function log_invalid(msg, str) {
+  log_impl(msg, str, null);
+
+  msg.author.createDM()
+    .then(dm => do_send(dm, str))
+    .catch(console.error);
+
+  msg.channel.fetchMessage(msg.id)
+    .then(m => m.delete().catch(console.error))
+    .catch(console.error);
 };
 
 /*
@@ -378,10 +386,12 @@ function handle_help(msg, args) {
  */
 function check_one_gym(msg, handle, results) {
   if (results.length < 1) {
-    chain_reaccs(msg, 'no_entry_sign');
-    return log_invalid(msg, `No gyms/raids matching ${handle}.`);
+    chain_reaccs(msg, 'cry');
+    do_send(msg, `Nothing found matching \`${handle}\`.`);
+    return false;
   } else if (results.length > 1) {
-    return log_invalid(msg, `Multiple gyms/raids matching ${handle}.`);
+    log_invalid(msg, `Multiple gyms/raids matching \`${handle}\`.`);
+    return false;
   }
   return true;
 }
@@ -417,7 +427,7 @@ function handle_ls_gyms(msg, args) {
   let role_name = args.join(' ');
   let role = get_role(msg, role_name);
   if (role === null) {
-    return log_invalid(msg, `Invalid region name ${role_name}.`);
+    return log_invalid(msg, `Invalid region name \`${role_name}\`.`);
   }
 
   conn.query(
@@ -445,7 +455,7 @@ function handle_add_gym(msg, args) {
 
   if (!region.match(Discord.MessageMentions.ROLES_PATTERN) ||
       msg.mentions.roles.size !== 1) {
-    return log_invalid(msg, `Invalid region ${region}.`);
+    return log_invalid(msg, `Invalid region \`${region}\`.`);
   }
   region = msg.mentions.roles.first().id;
 
@@ -481,7 +491,7 @@ function handle_raid(msg, args) {
     errwrap(function (results, fields) {
       if (results.length < 1) {
         chain_reaccs(msg, 'no_entry_sign');
-        return log_invalid(msg, `No gyms/raids matching ${handle}.`);
+        return do_send(msg, `No raids matching ${handle}.`);
       }
       let [raid] = results;
 
@@ -528,7 +538,7 @@ function handle_ls_raids(msg, args) {
   let role_name = args.join(' ');
   let role = get_role(msg, role_name);
   if (role === null) {
-    return log_invalid(msg, `Invalid region name ${role_name}.`);
+    return log_invalid(msg, `Invalid region name \`${role_name}\`.`);
   }
 
   let now = new Date(Date.now());
@@ -560,10 +570,15 @@ function handle_ls_raids(msg, args) {
   );
 }
 
-function handle_spot(msg, handle, tier, boss, timer) {
-  timer = parse_timer(timer);
+function handle_spot(msg, handle, tier_in, boss, timer_in) {
+  let tier = parseInt(tier_in);
+  if (!(tier >= 1 && tier <= 5)) {
+    return log_invalid(msg, `Invalid raid tier \`${tier_in}\`.`);
+  }
+
+  let timer = parse_timer(timer_in);
   if (timer === null) {
-    return log_invalid(msg, `Invalid timer ${timer}.`);
+    return log_invalid(msg, `Invalid MM:SS timer \`${timer_in}\`.`);
   }
 
   let egg_adjust = boss === null ? 45 : 0;
@@ -604,7 +619,7 @@ function handle_spot_raid(msg, args) {
   boss = boss.toLowerCase();
 
   if (!(boss in raid_tiers)) {
-    return log_invalid(msg, `Unrecognized raid boss ${boss}.`);
+    return log_invalid(msg, `Unrecognized raid boss \`${boss}\`.`);
   }
 
   handle_spot(msg, handle, raid_tiers[boss], boss, timer);
@@ -618,7 +633,7 @@ function handle_call_time(msg, args) {
 
   let call_time = parse_hour_minute(time);
   if (call_time === null) {
-    return log_invalid(msg, `Unrecognized HH:MM time ${time}.`);
+    return log_invalid(msg, `Unrecognized HH:MM time \`${time}\`.`);
   }
   naccts = naccts || 1;
 
@@ -657,7 +672,7 @@ function handle_call_time(msg, args) {
 
           let role = msg.guild.roles.get(raid.region);
           if (role === null) {
-            return log_invalid(msg, `Malformed gym entry for ${raid.handle}.`);
+            return log_error(msg, `Malformed gym entry for ${raid.handle}.`);
           }
 
           let role_str = raid.silent ? role.name : role.toString();
@@ -714,7 +729,7 @@ function handle_request(msg, request, args) {
     case 'join':      return handle_join(msg, args);
     case 'unjoin':    return handle_unjoin(msg, args);
     default:
-      return log_invalid(msg, `Invalid request ${request}.`);
+      return log_invalid(msg, `Invalid request \`${request}\`.`);
   }
 }
 
@@ -744,7 +759,7 @@ function handle_request_with_check(msg, request, args) {
       return log_invalid(
         msg,
         `User ${msg.author.tag} does not have permissions for ${request}.`,
-        get_emoji('dealwithit')
+        'dealwithit'
       );
     })
   );
