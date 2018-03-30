@@ -485,7 +485,7 @@ function handle_raid(msg, args) {
     '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
     '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
     '   WHERE gyms.handle LIKE ? ' +
-    '   AND calls.time > ?',
+    '   AND (calls.time IS NULL OR calls.time > ?)',
     [`%${handle}%`, now],
 
     errwrap(function (results, fields) {
@@ -518,14 +518,16 @@ raid egg: **T${raid.tier}**
 hatch: ${time_to_string(hatch)}`;
       }
 
-      output += '\ncall times:';
+      if (raid.time !== null) {
+        output += '\ncall times:';
 
-      // Now grab all the existing raid calls.
-      for (let call of results) {
-        let member = msg.guild.members.get(call.caller);
-        output +=
-          `\n  - ${time_to_string(call.time)} ` +
-          `with ${member ? member.user.tag : 'unknown'}`;
+        // Now grab all the existing raid calls.
+        for (let call of results) {
+          let member = msg.guild.members.get(call.caller);
+          output +=
+            `\n  - ${time_to_string(call.time)} ` +
+            `with ${member ? member.user.tag : 'unknown'}`;
+        }
       }
 
       do_send(msg.channel, output)
