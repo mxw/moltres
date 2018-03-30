@@ -58,7 +58,7 @@ const Permission = {
 };
 
 const cmd_order = [
-  'help',
+  'help', 'test',
   'gym', 'ls-gyms', 'add-gym',
   'raid', 'ls-raids', 'spot-egg', 'spot-raid',
   'call-time', //'join', 'unjoin',
@@ -70,6 +70,12 @@ const cmds = {
     usage: '[request]',
     args: [0, 1],
     desc: 'Learn about our team\'s legendary avatar.',
+  },
+  test: {
+    perms: Permission.ADMIN,
+    usage: '',
+    args: [0, 100],
+    desc: 'Flavor of the week testing command.',
   },
   gym: {
     perms: Permission.NONE,
@@ -377,6 +383,9 @@ function handle_help(msg, args) {
     out = `\`${cmd}\`:  ${cmds[cmd].desc}\n${usage_string(cmd)}`;
   }
   do_send(msg.channel, out.trim());
+}
+
+function handle_test(msg, args) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -723,6 +732,7 @@ function handle_request(msg, request, args) {
 
   switch (request) {
     case 'help':      return handle_help(msg, args);
+    case 'test':      return handle_test(msg, args);
 
     case 'gym':       return handle_gym(msg, args);
     case 'ls-gyms':   return handle_ls_gyms(msg, args);
