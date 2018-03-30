@@ -678,12 +678,9 @@ function handle_call_time(msg, args) {
           }
 
           let role_str = raid.silent ? role.name : role.toString();
-          let boss_str = later > raid.despawn
-            ? `${fmt_boss(raid.boss)} raid`
-            : 'egg';
 
           let output =
-            `${role_str} **T${raid.tier} ${boss_str}** ` +
+            `${role_str} **T${raid.tier} ${fmt_boss(raid.boss)}** raid ` +
             `at \`[${raid.handle}]\` ` +
             `called for ${time_to_string(call_time)} by ${msg.author}`;
           do_send(msg.channel, output);
