@@ -192,9 +192,13 @@ function chain_reaccs(msg, ...reaccs) {
 
   let emoji = emoji_by_name[head] || get_emoji(head);
 
-  msg.react(emoji)
-  .then(r => { chain_reaccs(r.message, ...tail); })
-  .catch(console.error);
+  msg.channel.fetchMessage(msg.id)
+    .then(m => {
+      m.react(emoji)
+        .then(r => { chain_reaccs(r.message, ...tail); })
+        .catch(console.error);
+    })
+    .catch(console.error);
 }
 
 /*
