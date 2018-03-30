@@ -174,7 +174,6 @@ const raid_tiers = {
 const emoji_by_name = {
   no_entry_sign: '🚫',
   no_good: '🙅',
-  zero: '0️⃣',
 };
 
 /*
@@ -354,7 +353,7 @@ function handle_help(msg, args) {
 
   if (args.length === 0) {
     out = get_emoji('valor') +
-          '  Please type `:>` followed by your request:\n\n';
+          '  Please type `$` followed by your request:\n\n';
     for (let cmd of cmd_order) {
       out += `\`${cmd}\`:  ${cmds[cmd].desc}\n`;
     }
@@ -422,7 +421,7 @@ function handle_ls_gyms(msg, args) {
 
     errwrap(function (results, fields) {
       if (results.length === 0) {
-        return chain_reaccs(msg, 'zero');
+        return chain_reaccs(msg, 'no_entry_sign');
       }
 
       let output = `Gyms in **${role_name}**:\n`;
@@ -538,7 +537,7 @@ function handle_ls_raids(msg, args) {
 
     errwrap(function (results, fields) {
       if (results.length === 0) {
-        return chain_reaccs(msg, 'zero');
+        return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
       }
 
       let output = `Active raids in **${role_name}**:\n`;
@@ -746,9 +745,8 @@ function handle_request_with_check(msg, request, args) {
  * Process a user request.
  */
 function process_request(msg) {
-  let [prefix, request, ...rest] = msg.content.split(' ');
-
-  if (prefix !== ':>') return;
+  if (msg.content.charAt(0) !== '$') return;
+  let [request, ...rest] = msg.content.substr(1).split(' ');
 
   handle_request_with_check(msg, request, rest);
 }
