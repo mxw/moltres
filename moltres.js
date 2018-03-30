@@ -593,8 +593,9 @@ function handle_spot(msg, handle, tier, boss, timer) {
 function handle_spot_egg(msg, args) {
   let [handle, tier, timer] = args;
 
-  if (tier.startsWith('T')) tier = tier.substr(1);
-
+  if (tier.startsWith('T') || tier.startsWith('t')) {
+    tier = tier.substr(1);
+  }
   handle_spot(msg, handle, tier, null, timer);
 }
 
