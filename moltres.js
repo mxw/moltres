@@ -688,6 +688,10 @@ function handle_unjoin(msg, args) {
  * Do the work of `request'.
  */
 function handle_request(msg, request, args) {
+  if (args.length === 1 && args[0] === 'help') {
+    return handle_help(msg, [request]);
+  }
+
   let params_range = cmds[request].args;
 
   if (args.length < params_range[0] || args.length > params_range[1]) {
