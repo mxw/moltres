@@ -637,6 +637,12 @@ function handle_call_time(msg, args) {
   if (call_time === null) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${time}\`.`);
   }
+
+  let now = new Date(Date.now());
+  if (call_time < now) {
+    return log_invalid(msg, `Can't call a time in the past \`${time}\`.`);
+  }
+
   naccts = naccts || 1;
 
   let later = new Date(call_time.getTime());
