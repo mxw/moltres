@@ -169,6 +169,20 @@ const raid_tiers = {
 // Discord utilities.
 
 /*
+ * Wrapper around send().
+ */
+function do_send(channel, content) {
+  return channel.send(content).catch(console.error);
+}
+
+/*
+ * Re-load a message for performing further operations.
+ */
+function refresh(msg) {
+  return msg.channel.fetchMessage(msg.id).catch(console.error);
+}
+
+/*
  * Avoid polluting the rest of the file with emoji.
  */
 const emoji_by_name = {
@@ -194,13 +208,11 @@ function chain_reaccs(msg, ...reaccs) {
 
   let emoji = emoji_by_name[head] || get_emoji(head);
 
-  msg.channel.fetchMessage(msg.id)
-    .then(m => {
-      m.react(emoji)
-        .then(r => { chain_reaccs(r.message, ...tail); })
-        .catch(console.error);
-    })
-    .catch(console.error);
+  refresh(msg).then(m => {
+    m.react(emoji)
+      .then(r => { chain_reaccs(r.message, ...tail); })
+      .catch(console.error);
+  });
 }
 
 /*
@@ -251,9 +263,7 @@ function log_invalid(msg, str) {
     .then(dm => do_send(dm, str))
     .catch(console.error);
 
-  msg.channel.fetchMessage(msg.id)
-    .then(m => m.delete().catch(console.error))
-    .catch(console.error);
+  msg.delete().catch(console.error);
 };
 
 /*
@@ -274,26 +284,19 @@ function fmt_boss(boss) {
     : 'unknown';
 }
 
-/*
- * Wrapper around send().
- */
-function do_send(channel, content) {
-  return channel.send(content).catch(console.error);
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 // MySQL utilities.
 
 /*
  * MySQL handler which logs any error, or otherwise delegates to a callback.
  */
-function errwrap(fn = null) {
+function errwrap(msg, fn = null) {
   return function (err, ...rest) {
     if (err) {
       console.error(err);
       return log_error(msg, `MySQL error: ${err.code}.`);
     }
-    if (fn !== null) fn(...rest);
+    if (fn !== null) refresh(msg).then(m => fn(m, ...rest));
   };
 }
 
@@ -413,7 +416,7 @@ function handle_gym(msg, args) {
     'SELECT * FROM gyms WHERE handle LIKE ?',
     [`%${handle}%`],
 
-    errwrap(function (results, fields) {
+    errwrap(msg, function (msg, results) {
       if (!check_one_gym(msg, handle, results)) return;
       let [gym] = results;
 
@@ -433,7 +436,7 @@ function handle_ls_gyms(msg, args) {
   conn.query(
     'SELECT * FROM gyms WHERE region = ?', [role.id],
 
-    errwrap(function (results, fields) {
+    errwrap(msg, function (msg, results) {
       if (results.length === 0) {
         return chain_reaccs(msg, 'no_entry_sign');
       }
@@ -468,7 +471,7 @@ function handle_add_gym(msg, args) {
       region: region,
       lat: lat,
       lng: lng, },
-    errwrap((..._) => react_success(msg))
+    errwrap(msg, msg => react_success(msg))
   );
 }
 
@@ -488,7 +491,7 @@ function handle_raid(msg, args) {
     '   AND (calls.time IS NULL OR calls.time > ?)',
     [`%${handle}%`, now],
 
-    errwrap(function (results, fields) {
+    errwrap(msg, function (msg, results) {
       if (results.length < 1) {
         chain_reaccs(msg, 'no_entry_sign');
         return do_send(msg.channel, `No raids matching ${handle}.`);
@@ -499,7 +502,7 @@ function handle_raid(msg, args) {
         conn.query(
           'DELETE FROM raids WHERE gym_id = ?',
           [raid.gym_id],
-          errwrap()
+          errwrap(msg)
         );
         return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
       }
@@ -551,7 +554,7 @@ function handle_ls_raids(msg, args) {
     'WHERE gyms.region = ? AND raids.despawn > ?',
     [role.id, now],
 
-    errwrap(function (results, fields) {
+    errwrap(msg, function (msg, results) {
       if (results.length === 0) {
         return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
       }
@@ -603,7 +606,7 @@ function handle_spot(msg, handle, tier_in, boss, timer_in) {
     '         AND despawn > ? ' +
     '     ) ',
     [tier, boss, despawn, msg.author.id, `%${handle}%`, pop],
-    errwrap((..._) => react_success(msg))
+    errwrap(msg, msg => react_success(msg))
   );
 }
 
@@ -657,7 +660,7 @@ function handle_call_time(msg, args) {
     '   AND raids.despawn <= ?',
     [msg.author.id, call_time, `%${handle}%`, call_time, later],
 
-    errwrap(function (result) {
+    errwrap(msg, function (msg, result) {
       let call_id = result.insertId;
 
       conn.query(
@@ -666,7 +669,7 @@ function handle_call_time(msg, args) {
           user_id: msg.author.id,
           accounts: naccts,
           maybe: false },
-        errwrap()
+        errwrap(msg)
       );
 
       conn.query(
@@ -674,7 +677,7 @@ function handle_call_time(msg, args) {
         '   WHERE handle LIKE ?',
         [`%${handle}%`],
 
-        errwrap(function (results, fields) {
+        errwrap(msg, function (msg, results) {
           if (!check_one_gym(msg, handle, results)) return;
           let [raid] = results;
 
@@ -758,7 +761,7 @@ function handle_request_with_check(msg, request, args) {
     'SELECT * FROM permissions WHERE (cmd = ? AND user_id = ?)',
     [request, user_id],
 
-    errwrap(function (results, fields) {
+    errwrap(msg, function (msg, results) {
       if (results.length === 1) {
         return handle_request(msg, request, args);
       }
