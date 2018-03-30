@@ -229,6 +229,48 @@ function errwrap(fn = null) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// Time utilities.
+
+/*
+ * Extract the minutes and seconds from a raid countdown timer.
+ */
+function parse_timer(timer) {
+  let matches = timer.match(/^(\d{1,2}):(\d\d)$/);
+  if (matches === null) return null;
+
+  return {
+    mins: parseInt(matches[1]),
+    secs: parseInt(matches[2]),
+  };
+}
+
+/*
+ * Stringify a Date object according to our whims.
+ */
+function time_to_string(date) {
+  return date.toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: true,
+  });
+}
+
+/*
+ * Get the raid pop or hatch time from a despawn time.
+ */
+function pop_from_despawn(despawn) {
+  let pop = new Date(despawn.getTime());
+  pop.setMinutes(pop.getMinutes() - 60 - 45);
+  return pop;
+}
+function hatch_from_despawn(despawn) {
+  let hatch = new Date(despawn.getTime());
+  hatch.setMinutes(hatch.getMinutes() - 45);
+  return hatch;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // General handlers.
 
 function handle_help(msg, args) {
@@ -316,31 +358,6 @@ function handle_rm_gym(msg, args) {
 ///////////////////////////////////////////////////////////////////////////////
 // Raid handlers.
 
-/*
- * Extract the minutes and seconds from a raid countdown timer.
- */
-function parse_timer(timer) {
-  let matches = timer.match(/^(\d{1,2}):(\d\d)$/);
-  if (matches === null) return null;
-
-  return {
-    mins: parseInt(matches[1]),
-    secs: parseInt(matches[2]),
-  };
-}
-
-/*
- * Stringify a Date object according to our whims.
- */
-function time_to_string(date) {
-  return date.toLocaleString('en-US', {
-    timeZone: 'America/New_York',
-    hour: 'numeric',
-    minute: 'numeric',
-    hour12: true,
-  });
-}
-
 function handle_raid(msg, args) {
   let [handle] = args;
 
@@ -367,8 +384,7 @@ function handle_raid(msg, args) {
         return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
       }
 
-      let hatch = new Date(raid.despawn.getTime());
-      hatch.setMinutes(hatch.getMinutes() - 45);
+      let hatch = hatch_from_despawn(raid.despawn);
 
       let output = gym_row_to_string(msg, raid) + '\n';
 
@@ -401,8 +417,7 @@ function handle_spot(msg, handle, tier, boss, timer) {
   despawn.setMinutes(despawn.getMinutes() + timer.mins + egg_adjust);
   despawn.setSeconds(despawn.getSeconds() + timer.secs);
 
-  let pop = new Date(despawn.getTime());
-  pop.setMinutes(pop.getMinutes() - 60 - 45);
+  let pop = pop_from_despawn(despawn);
 
   let foo = conn.query(
     'REPLACE INTO raids (gym_id, tier, boss, despawn, spotter) ' +
