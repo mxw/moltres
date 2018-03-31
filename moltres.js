@@ -511,11 +511,18 @@ function handle_add_gym(msg, args) {
   }
 
   let region = function() {
+    // Maybe it's a mention.
     if (region_in.match(Discord.MessageMentions.ROLES_PATTERN) &&
         msg.mentions.roles.size === 1) {
       return msg.mentions.roles.first().id;
     }
-    let region = msg.guild.roles.get(region_in);
+
+    // Maybe it's a prefix.
+    let region = get_role(msg, region_in);
+    if (region) return region.id;
+
+    // Maybe it's an ID.
+    region = msg.guild.roles.get(region_in);
     return region ? region.id : null;
   }();
   if (region === null) {
