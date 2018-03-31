@@ -670,7 +670,7 @@ function handle_raid(msg, args) {
   }, errwrap(msg, function (msg, results) {
     if (results.length < 1) {
       chain_reaccs(msg, 'no_entry_sign');
-      return send_quiet(msg.channel, `No unique gym match for ${handle}.`);
+      return send_quiet(msg.channel, `No unique raid found for ${handle}.`);
     }
     let [{gyms, raids, calls}] = results;
 
