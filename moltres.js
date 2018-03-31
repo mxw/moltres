@@ -323,6 +323,13 @@ function mutation_handler(msg) {
 // Time utilities.
 
 /*
+ * Return a Date for the current time.
+ */
+function get_now() {
+  return new Date(Date.now());
+}
+
+/*
  * Extract the minutes and seconds from a raid countdown timer.
  */
 function parse_timer(timer) {
@@ -343,7 +350,7 @@ function parse_hour_minute(time) {
   let meta = parse_timer(time);
   if (meta === null) return null;
 
-  let now = new Date(Date.now());
+  let now = get_now();
   return new Date(
     now.getFullYear(),
     now.getMonth(),
@@ -529,7 +536,7 @@ function fmt_boss(boss) {
 function handle_raid(msg, args) {
   let [handle] = args;
 
-  let now = new Date(Date.now());
+  let now = get_now();
 
   conn.query({
     sql:
@@ -629,7 +636,7 @@ function handle_ls_raids(msg, args) {
     return log_invalid(msg, `Invalid region name \`${role_name}\`.`);
   }
 
-  let now = new Date(Date.now());
+  let now = get_now();
 
   conn.query(
     'SELECT * FROM gyms INNER JOIN raids ' +
@@ -671,7 +678,7 @@ function handle_spot(msg, handle, tier_in, boss, timer_in) {
 
   let egg_adjust = boss === null ? 45 : 0;
 
-  let despawn = new Date(Date.now());
+  let despawn = get_now();
   despawn.setMinutes(despawn.getMinutes() + timer.mins + egg_adjust);
   despawn.setSeconds(despawn.getSeconds() + timer.secs);
 
@@ -721,7 +728,7 @@ function handle_call_time(msg, args) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${time}\`.`);
   }
 
-  let now = new Date(Date.now());
+  let now = get_now();
   if (call_time < now) {
     return log_invalid(msg, `Can't call a time in the past \`${time}\`.`);
   }
