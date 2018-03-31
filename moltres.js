@@ -73,72 +73,128 @@ const cmds = {
     usage: '[request]',
     args: [0, 1],
     desc: 'Learn about our team\'s legendary avatar.',
+    detail: [
+      'Just `$help` will list all common requests. You can also use',
+      '`$help req` or `$req help` to get more information about a specific',
+      'request.',
+    ],
   },
   'test': {
     perms: Permission.ADMIN,
     usage: '',
     args: [0, 100],
     desc: 'Flavor of the week testing command.',
+    detail: [
+      'This request is only available to me.',
+    ],
   },
   'gym': {
     perms: Permission.NONE,
     usage: '<handle>',
     args: [1, 1],
     desc: 'Get information about a gym.',
+    detail: [
+      'A gym handle is something like `jh-john-harvard` or `newtowne`.',
+      'You can use partial substring matches (like `jh` or even `ohn-harv`)',
+      'as long as they don\'t match another gym.\n\nUse `$ls-gyms <region>`',
+      'if you want to see all the gym handles (but they should be what you',
+      'expect).',
+    ],
   },
   'ls-gyms': {
     perms: Permission.NONE,
     usage: '<region-name>',
     args: [1, 100],
     desc: 'List all gyms in a region.',
+    detail: [
+      'The region name should be any valid region role (without the `@`).',
+      'Case doesn\'t matter, and uniquely-identifying prefixes are allowed,',
+      'so, e.g., `harvard` will work, but `boston` will not (but `boston',
+      'common` is fine).',
+    ],
   },
   'add-gym': {
     perms: Permission.TABLE,
     usage: '<handle> <region> <lat> <lng> <name>',
     args: [5, 100],
     desc: 'Add a new gym to the database.',
+    detail: [
+      'The region can be a tag, a numeric Discord ID, or a prefix of the',
+      'region role name. If a prefix is used, it cannot contain whitespace,',
+      'which means that certain roles with shared prefixes _must_ be',
+      'identified by tag (which _can_ contain whitespace) or by ID.',
+    ],
   },
   'raid': {
     perms: Permission.NONE,
     usage: '<gym-handle>',
     args: [1, 1],
     desc: 'Get information about the current raid at a gym.',
+    detail: [
+      'See `$help gym` for details on gym handles.',
+    ],
   },
   'ls-raids': {
     perms: Permission.NONE,
     usage: '<region-name>',
     args: [1, 100],
     desc: 'List all active raids in a region.',
+    detail: [
+      'The region name should be any valid region role (without the `@`).',
+      'Case doesn\'t matter, and uniquely-identifying prefixes are allowed,',
+      'so, e.g., `harvard` will work, but `boston` will not (but `boston',
+      'common` is fine).',
+    ],
   },
   'egg': {
     perms: Permission.NONE,
     usage: '<gym-handle> <tier> <time-til-hatch MM:SS>',
     args: [3, 3],
     desc: 'Report a raid egg.',
+    detail: [
+      'The tier can be any number 1–5 or things like `t3` or `T4`. The time',
+      'should be the current _**countdown timer**_, not a time of day. See',
+      '`$help gym` for details on gym handles.',
+    ],
   },
   'boss': {
     perms: Permission.NONE,
     usage: '<gym-handle> <boss> <time-til-despawn MM:SS>',
     args: [3, 3],
     desc: 'Report a hatched raid boss.',
+    detail: [
+      'The time should be the current _**countdown timer**_, not a time of',
+      'day. See `$help gym` for details on gym handles.',
+    ],
   },
   'update': {
     perms: Permission.NONE,
     usage: '<gym-handle> <tier-or-boss-or-despawn-time>',
     args: [2, 2],
     desc: 'Modify an active raid listing.',
+    detail: [
+      'Note that unlike `$egg` and `$boss`, times are interpreted as',
+      '_despawn times_, not countdown timers.',
+    ],
   },
   'call-time': {
     perms: Permission.NONE,
     usage: '<gym-handle> <HH:MM> [num-extras]',
     args: [2, 3],
     desc: 'Call a time for a raid.',
+    detail: [
+      'Make sure not to double-call a time, or Moltres will be mad at you.',
+    ],
   },
   'join': {
     perms: Permission.NONE,
     usage: '<gym-handle> [HH:MM] [num-extras]',
     args: [1, 3],
     desc: 'Join a called raid time.',
+    detail: [
+      'You don\'t need to specify the time _unless_ the raid has multiple',
+      'called times, in which case you do.',
+    ],
   },
   /*
   'unjoin': {
@@ -298,6 +354,8 @@ function log_invalid(msg, str) {
 function usage_string(cmd) {
   if (!(cmd in cmds)) return null;
   return `Usage: \`\$${cmd} ${cmds[cmd].usage}\`
+
+${cmds[cmd].detail.join(' ')}
 
 Arguments in \`<>\` are required; arguments in \`[]\` are optional.`;
 }
