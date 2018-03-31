@@ -550,6 +550,7 @@ coords: <https://maps.google.com/maps?q=${gym.lat},${gym.lng}>`;
 
 function handle_gym(msg, args) {
   let [handle] = args;
+  handle = handle.toLowerCase();
 
   conn.query(
     'SELECT * FROM gyms WHERE handle LIKE ?',
@@ -592,6 +593,7 @@ function handle_ls_gyms(msg, args) {
 
 function handle_add_gym(msg, args) {
   let [handle, region_in, lat, lng, ...name] = args;
+  handle = handle.toLowerCase();
 
   if (lat.charAt(lat.length - 1) === ',') {
     lat = lat.substr(0, lat.length - 1);
@@ -658,6 +660,7 @@ function fmt_boss(boss) {
 
 function handle_raid(msg, args) {
   let [handle] = args;
+  handle = handle.toLowerCase();
 
   let now = get_now();
 
@@ -788,6 +791,8 @@ function handle_ls_raids(msg, args) {
 }
 
 function handle_report(msg, handle, tier_in, boss, timer_in) {
+  handle = handle.toLowerCase();
+
   let tier = parse_tier(tier_in);
   if (tier === null) {
     return log_invalid(msg, `Invalid raid tier \`${tier_in}\`.`);
@@ -842,6 +847,7 @@ function handle_boss(msg, args) {
 
 function handle_update(msg, args) {
   let [handle, data] = args;
+  handle = handle.toLowerCase();
 
   let assignment = function() {
     let boss = data.toLowerCase();
@@ -884,6 +890,7 @@ function handle_update(msg, args) {
 
 function handle_call_time(msg, args) {
   let [handle, time, extras] = args;
+  handle = handle.toLowerCase();
 
   let call_time = parse_hour_minute(time);
   if (call_time === null) {
@@ -952,6 +959,7 @@ function handle_call_time(msg, args) {
 
 function handle_join(msg, args) {
   let [handle, time, extras] = args;
+  handle = handle.toLowerCase();
 
   let call_time = null;
   if (time) {
