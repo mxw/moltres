@@ -286,16 +286,6 @@ function usage_string(cmd) {
 Arguments in \`<>\` are required; arguments in \`[]\` are optional.`;
 }
 
-/*
- * Capitalize the first letter of a raid boss's name, or return 'unknown' if
- * the boss is null.
- */
-function fmt_boss(boss) {
-  return boss !== null
-    ? boss.charAt(0).toUpperCase() + boss.substr(1)
-    : 'unknown';
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 // MySQL utilities.
 
@@ -512,6 +502,30 @@ function handle_add_gym(msg, args) {
 ///////////////////////////////////////////////////////////////////////////////
 // Raid handlers.
 
+/*
+ * Pull the integer tier from a tier string (e.g., '5' or 'T5'), or return null
+ * if the string is not tier-like.
+ */
+function parse_tier(tier) {
+  tier = '' + tier;
+
+  if (tier.startsWith('T') || tier.startsWith('t')) {
+    tier = tier.substr(1);
+  }
+  tier = parseInt(tier);
+  return (tier >= 1 && tier <= 5) ? tier : null;
+}
+
+/*
+ * Capitalize the first letter of a raid boss's name, or return 'unknown' if
+ * the boss is null.
+ */
+function fmt_boss(boss) {
+  return boss !== null
+    ? boss.charAt(0).toUpperCase() + boss.substr(1)
+    : 'unknown';
+}
+
 function handle_raid(msg, args) {
   let [handle] = args;
 
@@ -645,8 +659,8 @@ function handle_ls_raids(msg, args) {
 }
 
 function handle_spot(msg, handle, tier_in, boss, timer_in) {
-  let tier = parseInt(tier_in);
-  if (!(tier >= 1 && tier <= 5)) {
+  let tier = parse_tier(tier_in);
+  if (tier === null) {
     return log_invalid(msg, `Invalid raid tier \`${tier_in}\`.`);
   }
 
@@ -682,9 +696,6 @@ function handle_spot(msg, handle, tier_in, boss, timer_in) {
 function handle_spot_egg(msg, args) {
   let [handle, tier, timer] = args;
 
-  if (tier.startsWith('T') || tier.startsWith('t')) {
-    tier = tier.substr(1);
-  }
   handle_spot(msg, handle, tier, null, timer);
 }
 
