@@ -615,8 +615,7 @@ hatch: ${time_to_string(hatch)}`;
         // Get an array of attendee strings, removing the raid time caller.
         let attendees = rows_by_time[t].map(row => {
           let member = msg.guild.members.get(row.rsvps.user_id);
-          if (member === null ||
-              member.user.id === calls.caller) return null;
+          if (!member || member.user.id === calls.caller) return null;
 
           let extras = row.rsvps.extras !== 0
             ? ` +${row.rsvps.extras}`
@@ -625,7 +624,7 @@ hatch: ${time_to_string(hatch)}`;
         }).filter(a => a !== null);
 
         let caller = msg.guild.members.get(calls.caller);
-        let caller_str = caller !== null
+        let caller_str = caller
           ? caller.nickname || caller.user.username
           : '';
 
@@ -823,7 +822,7 @@ function handle_call_time(msg, args) {
           let [raid] = results;
 
           let role = msg.guild.roles.get(raid.region);
-          if (role === null) {
+          if (!role) {
             return log_error(msg, `Malformed gym entry for ${raid.handle}.`);
           }
 
