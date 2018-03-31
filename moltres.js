@@ -620,11 +620,12 @@ hatch: ${time_to_string(hatch)}`;
 
         let caller = msg.guild.members.get(calls.caller);
         let caller_str = caller !== null
-          ? `${caller.nickname || caller.user.username}, with `
+          ? caller.nickname || caller.user.username
           : '';
 
         output += `\n- **${time_to_string(calls.time)}**—` +
-                  `${caller_str}${attendees.join(', ')}`;
+                  `${caller_str}${attendees.length !== 0 ? ', with: ' : ''}` +
+                  `${attendees.join(', ')}`;
       }
     }
 
