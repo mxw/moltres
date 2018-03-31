@@ -57,6 +57,9 @@ const Permission = {
   TABLE: 2,
 };
 
+/*
+ * Order of display for $help.
+ */
 const cmd_order = [
   'help', 'test',
   'gym', 'ls-gyms', 'add-gym',
@@ -529,6 +532,7 @@ function handle_raid(msg, args) {
     let [{gyms, raids, calls}] = results;
 
     if (raids.despawn < now) {
+      // Clean up expired raids.
       conn.query(
         'DELETE FROM raids WHERE gym_id = ?',
         [raids.gym_id],
@@ -540,7 +544,6 @@ function handle_raid(msg, args) {
     let hatch = hatch_from_despawn(raids.despawn);
 
     let output = gym_row_to_string(msg, gyms) + '\n';
-
     if (now >= hatch) {
       output +=`
 raid: **${fmt_boss(raids.boss)}** (T${raids.tier})
@@ -557,6 +560,7 @@ hatch: ${time_to_string(hatch)}`;
       let times = [];
       let rows_by_time = {};
 
+      // Order and de-dup the call times and bucket rows by those times.
       for (let row of results) {
         let t = row.calls.time.getTime();
         if (t < now) continue;
@@ -569,9 +573,11 @@ hatch: ${time_to_string(hatch)}`;
       }
       times.sort();
 
+      // Append details for each call time.
       for (let t of times) {
         let [{calls}] = rows_by_time[t];
 
+        // Get an array of attendee strings, removing the raid time caller.
         let attendees = rows_by_time[t].map(row => {
           let member = msg.guild.members.get(row.rsvps.user_id);
           if (member === null ||
@@ -692,7 +698,7 @@ function handle_spot_raid(msg, args) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// Raid calls.
+// Raid call handlers.
 
 function handle_call_time(msg, args) {
   let [handle, time, extras] = args;
@@ -733,6 +739,7 @@ function handle_call_time(msg, args) {
         errwrap(msg)
       );
 
+      // Grab the raid information just for reply purposes.
       conn.query(
         'SELECT * FROM gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
         '   WHERE handle LIKE ?',
