@@ -963,7 +963,7 @@ function handle_request_with_check(msg, request, args) {
  */
 function process_request(msg) {
   if (msg.content.charAt(0) !== '$') return;
-  let [request, ...rest] = msg.content.substr(1).split(' ');
+  let [request, ...rest] = msg.content.substr(1).split(/\s+/);
 
   handle_request_with_check(msg, request, rest);
 }
