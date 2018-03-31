@@ -130,8 +130,11 @@ const cmds = {
     detail: [
       'The region can be a tag, a numeric Discord ID, or a prefix of the',
       'region role name. If a prefix is used, it cannot contain whitespace,',
-      'which means that certain roles with shared prefixes _must_ be',
-      'identified by tag (which _can_ contain whitespace) or by ID.',
+      'which means that roles with shared prefixes _must_ be identified by',
+      'tag (which _can_ contain whitespace) or by ID.\n\nThe recommended',
+      'method for adding gyms is to copy information over from',
+      '<http://www.massmwcreaturemap.com/>. Note that the latitude argument',
+      'is allowed to contain a trailing comma, for ease of copying.',
     ],
   },
   'raid': {
