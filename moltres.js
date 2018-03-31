@@ -858,16 +858,16 @@ function handle_update(msg, args) {
       };
     }
 
-    let tier = parse_tier(data);
-    if (tier !== null) {
-      return { tier: tier };
-    }
-
     let now = get_now();
     let despawn = parse_hour_minute(data);
     if (despawn !== null && despawn > now &&
         pop_from_despawn(despawn) <= now) {
       return { despawn: despawn };
+    }
+
+    let tier = parse_tier(data);
+    if (tier !== null) {
+      return { tier: tier };
     }
 
     return null;
