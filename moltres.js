@@ -61,7 +61,7 @@ const Permission = {
  * Order of display for $help.
  */
 const cmd_order = [
-  'help', 'test',
+  'help', 'set-perm', 'test',
   'gym', 'ls-gyms', 'add-gym',
   'raid', 'ls-raids', 'egg', 'boss', 'update',
   'call-time', 'join', // 'unjoin',
@@ -77,6 +77,15 @@ const cmds = {
       'Just `$help` will list all common requests. You can also use',
       '`$help req` or `$req help` to get more information about a specific',
       'request.',
+    ],
+  },
+  'set-perm': {
+    perms: Permission.TABLE,
+    usage: '<user> <request>',
+    args: [2, 2],
+    desc: 'Enable others to use more requests.',
+    detail: [
+      'The user should be identified by tag.',
     ],
   },
   'test': {
@@ -483,6 +492,23 @@ function handle_help(msg, args) {
     out = `\`${cmd}\`:  ${cmds[cmd].desc}\n${usage_string(cmd)}`;
   }
   send_quiet(msg.channel, out.trim());
+}
+
+function handle_set_perm(msg, args) {
+  let [user_tag, request] = args;
+
+  if (!user_tag.match(Discord.MessageMentions.USERS_PATTERN) ||
+      msg.mentions.users.size !== 1) {
+    return log_invalid(msg, `Invalid user tag \`${user_tag}\`.`);
+  }
+  let user_id = msg.mentions.users.first().id;
+
+  conn.query(
+    'INSERT INTO permissions SET ?',
+    { cmd: request,
+      user_id: user_id, },
+    mutation_handler(msg)
+  );
 }
 
 function handle_test(msg, args) {
@@ -973,6 +999,7 @@ function handle_request(msg, request, args) {
 
   switch (request) {
     case 'help':      return handle_help(msg, args);
+    case 'set-perm':  return handle_set_perm(msg, args);
     case 'test':      return handle_test(msg, args);
 
     case 'gym':       return handle_gym(msg, args);
