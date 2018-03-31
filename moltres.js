@@ -235,7 +235,13 @@ function chain_reaccs(msg, ...reaccs) {
  * Get a Role by `name' for the guild `msg' belongs to.
  */
 function get_role(msg, name) {
-  return msg.guild.roles.find('name', name);
+  let role = msg.guild.roles.find('name', name);
+  if (role) return role;
+
+  let matches = msg.guild.roles.filterArray(
+    role => role.name.toLowerCase().startsWith(name.toLowerCase())
+  );
+  return matches.length === 1 ? matches[0] : null;
 }
 
 /*
@@ -484,7 +490,7 @@ function handle_ls_gyms(msg, args) {
         return chain_reaccs(msg, 'no_entry_sign');
       }
 
-      let output = `Gyms in **${role_name}**:\n`;
+      let output = `Gyms in **${role.name}**:\n`;
       for (let gym of results) {
         output += `\n\`[${gym.handle}]\` ${gym.name}`;
       }
@@ -667,7 +673,7 @@ function handle_ls_raids(msg, args) {
         return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
       }
 
-      let output = `Active raids in **${role_name}**:\n`;
+      let output = `Active raids in **${role.name}**:\n`;
       for (let raid of results) {
         let hatch = hatch_from_despawn(raid.despawn);
         let boss = hatch > now ? 'egg' : fmt_boss(raid.boss);
