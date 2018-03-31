@@ -124,7 +124,7 @@ const cmds = {
   },
   'update-raid': {
     perms: Permission.NONE,
-    usage: '<gym-handle> [tier, boss, or despawn time]',
+    usage: '<gym-handle> <tier-or-boss-or-despawn-time>',
     args: [2, 2],
     desc: 'Modify an active raid listing.',
   },
