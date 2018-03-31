@@ -68,19 +68,19 @@ const cmd_order = [
 ];
 
 const cmds = {
-  help: {
+  'help': {
     perms: Permission.NONE,
     usage: '[request]',
     args: [0, 1],
     desc: 'Learn about our team\'s legendary avatar.',
   },
-  test: {
+  'test': {
     perms: Permission.ADMIN,
     usage: '',
     args: [0, 100],
     desc: 'Flavor of the week testing command.',
   },
-  gym: {
+  'gym': {
     perms: Permission.NONE,
     usage: '<handle>',
     args: [1, 1],
@@ -98,7 +98,7 @@ const cmds = {
     args: [5, 100],
     desc: 'Add a new gym to the roost.',
   },
-  raid: {
+  'raid': {
     perms: Permission.NONE,
     usage: '<gym-handle>',
     args: [1, 1],
