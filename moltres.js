@@ -63,7 +63,7 @@ const Permission = {
 const cmd_order = [
   'help', 'test',
   'gym', 'ls-gyms', 'add-gym',
-  'raid', 'ls-raids', 'spot-egg', 'spot-raid', 'update-raid',
+  'raid', 'ls-raids', 'egg', 'boss', 'update',
   'call-time', 'join', // 'unjoin',
 ];
 
@@ -110,19 +110,19 @@ const cmds = {
     args: [1, 100],
     desc: 'List all active raids in a region.',
   },
-  'spot-egg': {
+  'egg': {
     perms: Permission.NONE,
     usage: '<gym-handle> <tier> <time-til-hatch MM:SS>',
     args: [3, 3],
-    desc: 'Announce a raid egg.',
+    desc: 'Report a raid egg.',
   },
-  'spot-raid': {
+  'boss': {
     perms: Permission.NONE,
     usage: '<gym-handle> <boss> <time-til-despawn MM:SS>',
     args: [3, 3],
-    desc: 'Announce a hatched raid boss.',
+    desc: 'Report a hatched raid boss.',
   },
-  'update-raid': {
+  'update': {
     perms: Permission.NONE,
     usage: '<gym-handle> <tier-or-boss-or-despawn-time>',
     args: [2, 2],
@@ -150,9 +150,13 @@ const cmds = {
   */
 };
 
-const unrestricted_cmds = new Set([
-  'gym',
-]);
+const cmd_aliases = {
+  'gyms':         'ls-gyms',
+  'raids':        'ls-raids',
+  'spot-egg':     'egg',
+  'spot-raid':    'boss',
+  'update-raid':  'update',
+};
 
 const raid_tiers = {
   snorunt: 1,
@@ -689,7 +693,7 @@ function handle_ls_raids(msg, args) {
   );
 }
 
-function handle_spot(msg, handle, tier_in, boss, timer_in) {
+function handle_report(msg, handle, tier_in, boss, timer_in) {
   let tier = parse_tier(tier_in);
   if (tier === null) {
     return log_invalid(msg, `Invalid raid tier \`${tier_in}\`.`);
@@ -725,13 +729,13 @@ function handle_spot(msg, handle, tier_in, boss, timer_in) {
   );
 }
 
-function handle_spot_egg(msg, args) {
+function handle_egg(msg, args) {
   let [handle, tier, timer] = args;
 
-  handle_spot(msg, handle, tier, null, timer);
+  handle_report(msg, handle, tier, null, timer);
 }
 
-function handle_spot_raid(msg, args) {
+function handle_boss(msg, args) {
   let [handle, boss, timer] = args;
   boss = boss.toLowerCase();
 
@@ -739,10 +743,10 @@ function handle_spot_raid(msg, args) {
     return log_invalid(msg, `Unrecognized raid boss \`${boss}\`.`);
   }
 
-  handle_spot(msg, handle, raid_tiers[boss], boss, timer);
+  handle_report(msg, handle, raid_tiers[boss], boss, timer);
 }
 
-function handle_update_raid(msg, args) {
+function handle_update(msg, args) {
   let [handle, data] = args;
 
   let assignment = function() {
@@ -912,9 +916,9 @@ function handle_request(msg, request, args) {
 
     case 'raid':      return handle_raid(msg, args);
     case 'ls-raids':  return handle_ls_raids(msg, args);
-    case 'spot-egg':  return handle_spot_egg(msg, args);
-    case 'spot-raid': return handle_spot_raid(msg, args);
-    case 'update-raid': return handle_update_raid(msg, args);
+    case 'egg':       return handle_egg(msg, args);
+    case 'boss':      return handle_boss(msg, args);
+    case 'update':    return handle_update(msg, args);
 
     case 'call-time': return handle_call_time(msg, args);
     case 'join':      return handle_join(msg, args);
@@ -930,6 +934,8 @@ function handle_request(msg, request, args) {
  */
 function handle_request_with_check(msg, request, args) {
   let user_id = msg.author.id;
+
+  request = cmd_aliases[request] || request;
 
   if (!(request in cmds)) {
     return log_invalid(msg, `Invalid request \`${request}\`.`);
