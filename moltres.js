@@ -63,7 +63,7 @@ const Permission = {
 const cmd_order = [
   'help', 'test',
   'gym', 'ls-gyms', 'add-gym',
-  'raid', 'ls-raids', 'spot-egg', 'spot-raid',
+  'raid', 'ls-raids', 'spot-egg', 'spot-raid', 'update-raid',
   'call-time', 'join', // 'unjoin',
 ];
 
@@ -121,6 +121,12 @@ const cmds = {
     usage: '<gym-handle> <boss> <time-til-despawn MM:SS>',
     args: [3, 3],
     desc: 'Announce a hatched raid boss.',
+  },
+  'update-raid': {
+    perms: Permission.NONE,
+    usage: '<gym-handle> [tier, boss, or despawn time]',
+    args: [2, 2],
+    desc: 'Modify an active raid listing.',
   },
   'call-time': {
     perms: Permission.NONE,
@@ -724,6 +730,45 @@ function handle_spot_raid(msg, args) {
   handle_spot(msg, handle, raid_tiers[boss], boss, timer);
 }
 
+function handle_update_raid(msg, args) {
+  let [handle, data] = args;
+
+  let assignment = function() {
+    let boss = data.toLowerCase();
+    if (boss in raid_tiers) {
+      return {
+        tier: raid_tiers[boss],
+        boss: boss,
+      };
+    }
+
+    let tier = parse_tier(data);
+    if (tier !== null) {
+      return { tier: tier };
+    }
+
+    let now = get_now();
+    let despawn = parse_hour_minute(data);
+    if (despawn !== null && despawn > now &&
+        pop_from_despawn(despawn) <= now) {
+      return { despawn: despawn };
+    }
+
+    return null;
+  }();
+
+  if (assignment === null) {
+    return log_invalid(msg, `Invalid update parameter \`${data}\`.`);
+  }
+
+  conn.query(
+    'UPDATE raids INNER JOIN gyms ON raids.gym_id = gyms.id ' +
+    'SET ? WHERE gyms.handle LIKE ? AND ' + where_one_gym,
+    [assignment, `%${handle}%`, `%${handle}%`],
+    mutation_handler(msg)
+  );
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Raid call handlers.
 
@@ -857,6 +902,7 @@ function handle_request(msg, request, args) {
     case 'ls-raids':  return handle_ls_raids(msg, args);
     case 'spot-egg':  return handle_spot_egg(msg, args);
     case 'spot-raid': return handle_spot_raid(msg, args);
+    case 'update-raid': return handle_update_raid(msg, args);
 
     case 'call-time': return handle_call_time(msg, args);
     case 'join':      return handle_join(msg, args);
