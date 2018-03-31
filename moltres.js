@@ -733,7 +733,7 @@ hatch: ${time_to_string(hatch)}`;
 
           let extras = row.rsvps.extras !== 0
             ? ` +${row.rsvps.extras}`
-            : null;
+            : '';
           return `${member.nickname || member.user.username}${extras}`
         }).filter(a => a !== null);
 
