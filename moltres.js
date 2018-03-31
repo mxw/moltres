@@ -195,6 +195,7 @@ const emoji_by_name = {
   cry: '😢',
   no_entry_sign: '🚫',
   no_good: '🙅',
+  thinking: '🤔',
 };
 
 /*
@@ -308,6 +309,19 @@ function errwrap(msg, fn = null) {
         .catch(console.error);
     }
   };
+}
+
+/*
+ * Wrapper around common handling for mutation requests.
+ */
+function mutation_handler(msg) {
+  return errwrap(msg, function (msg, result) {
+    if (result.affectedRows === 0) {
+      chain_reaccs(msg, 'thinking', 'larvitar');
+    } else {
+      react_success(msg);
+    }
+  })
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -486,7 +500,7 @@ function handle_add_gym(msg, args) {
       region: region,
       lat: lat,
       lng: lng, },
-    errwrap(msg, msg => react_success(msg))
+    mutation_handler(msg)
   );
 }
 
@@ -622,7 +636,7 @@ function handle_spot(msg, handle, tier_in, boss, timer_in) {
     '         AND despawn > ? ' +
     '     ) ',
     [tier, boss, despawn, msg.author.id, `%${handle}%`, pop],
-    errwrap(msg, msg => react_success(msg))
+    mutation_handler(msg)
   );
 }
 
@@ -672,8 +686,8 @@ function handle_call_time(msg, args) {
     '   SELECT raids.gym_id, ?, ? FROM gyms INNER JOIN raids ' +
     '     ON gyms.id = raids.gym_id ' +
     '   WHERE gyms.handle LIKE ? ' +
-    '   AND raids.despawn > ? ' +
-    '   AND raids.despawn <= ?',
+    '     AND raids.despawn > ? ' +
+    '     AND raids.despawn <= ?',
     [msg.author.id, call_time, `%${handle}%`, call_time, later],
 
     errwrap(msg, function (msg, result) {
