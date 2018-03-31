@@ -319,6 +319,12 @@ function mutation_handler(msg) {
   })
 }
 
+/*
+ * SQL snippet of the common "only one gym match" WHERE expression.
+ */
+const where_one_gym =
+  ' (SELECT COUNT(*) FROM gyms WHERE gyms.handle LIKE ?) = 1 ';
+
 ///////////////////////////////////////////////////////////////////////////////
 // Time utilities.
 
@@ -420,10 +426,10 @@ function handle_test(msg, args) {
 function check_one_gym(msg, handle, results) {
   if (results.length < 1) {
     chain_reaccs(msg, 'cry');
-    send_quiet(msg.channel, `Nothing found matching \`${handle}\`.`);
+    send_quiet(msg.channel, `No unique gym match for \`${handle}\`.`);
     return false;
   } else if (results.length > 1) {
-    log_invalid(msg, `Multiple gyms/raids matching \`${handle}\`.`);
+    log_invalid(msg, `Multiple gyms matching \`${handle}\`.`);
     return false;
   }
   return true;
@@ -544,13 +550,13 @@ function handle_raid(msg, args) {
       '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
       '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
       '   LEFT JOIN rsvps ON calls.id = rsvps.call_id ' +
-      '   WHERE gyms.handle LIKE ? ',
-    values: [`%${handle}%`, now],
+      '   WHERE gyms.handle LIKE ? AND ' + where_one_gym,
+    values: [`%${handle}%`, `%${handle}%`],
     nestTables: true,
   }, errwrap(msg, function (msg, results) {
     if (results.length < 1) {
       chain_reaccs(msg, 'no_entry_sign');
-      return send_quiet(msg.channel, `No raids matching ${handle}.`);
+      return send_quiet(msg.channel, `No unique gym match for ${handle}.`);
     }
     let [{gyms, raids, calls}] = results;
 
@@ -625,8 +631,7 @@ hatch: ${time_to_string(hatch)}`;
     msg.channel.send(output)
       .then(m => log_success(msg, `Handled \`raid\` from ${msg.author.tag}.`))
       .catch(console.error);
-  })
-  );
+  }));
 }
 
 function handle_ls_raids(msg, args) {
@@ -694,8 +699,9 @@ function handle_spot(msg, handle, tier_in, boss, timer_in) {
     '       SELECT * FROM raids ' +
     '         WHERE gym_id = gyms.id ' +
     '         AND despawn > ? ' +
-    '     ) ',
-    [tier, boss, despawn, msg.author.id, `%${handle}%`, pop],
+    '     ) ' +
+    '   AND ' + where_one_gym,
+    [tier, boss, despawn, msg.author.id, `%${handle}%`, pop, `%${handle}%`],
     mutation_handler(msg)
   );
 }
@@ -744,8 +750,9 @@ function handle_call_time(msg, args) {
     '     ON gyms.id = raids.gym_id ' +
     '   WHERE gyms.handle LIKE ? ' +
     '     AND raids.despawn > ? ' +
-    '     AND raids.despawn <= ?',
-    [msg.author.id, call_time, `%${handle}%`, call_time, later],
+    '     AND raids.despawn <= ? ' +
+    '     AND ' + where_one_gym,
+    [msg.author.id, call_time, `%${handle}%`, call_time, later, `%${handle}%`],
 
     errwrap(msg, function (msg, result) {
       let call_id = result.insertId;
@@ -807,12 +814,13 @@ function handle_join(msg, args) {
     '       INNER JOIN raids ON gyms.id = raids.gym_id ' +
     '       INNER JOIN calls ON raids.gym_id = calls.raid_id ' +
     '   WHERE gyms.handle LIKE ? ' +
+    '     AND ' + where_one_gym +
     '     AND ' + (call_time === null
       ? '   (SELECT COUNT(*) FROM calls ' +
         '     WHERE raids.gym_id = calls.raid_id) = 1'
       : '   calls.time = ?'
     ),
-    [msg.author.id, extras, false, `%${handle}%`, call_time],
+    [msg.author.id, extras, false, `%${handle}%`, `%${handle}%`, call_time],
     mutation_handler(msg)
   );
 }
