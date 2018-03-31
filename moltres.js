@@ -61,7 +61,7 @@ const cmd_order = [
   'help', 'test',
   'gym', 'ls-gyms', 'add-gym',
   'raid', 'ls-raids', 'spot-egg', 'spot-raid',
-  'call-time', //'join', 'unjoin',
+  'call-time', 'join', // 'unjoin',
 ];
 
 const cmds = {
@@ -121,20 +121,20 @@ const cmds = {
   },
   'call-time': {
     perms: Permission.NONE,
-    usage: '<gym-handle> <HH:MM> [num-accounts]',
+    usage: '<gym-handle> <HH:MM> [num-extras]',
     args: [2, 3],
     desc: 'Call a time for a raid.',
   },
-  /*
   'join': {
     perms: Permission.NONE,
-    usage: '<gym-handle> [HH:MM] [num-accounts]',
+    usage: '<gym-handle> [HH:MM] [num-extras]',
     args: [1, 3],
     desc: 'Join a called raid time.',
   },
+  /*
   'unjoin': {
     perms: Permission.NONE,
-    usage: '<gym-handle> [HH:MM] [num-accounts]',
+    usage: '<gym-handle> [HH:MM] [num-extras]',
     args: [1, 3],
     desc: 'Back out of a raid.',
   },
@@ -512,60 +512,91 @@ function handle_raid(msg, args) {
 
   let now = new Date(Date.now());
 
-  conn.query(
-    'SELECT * FROM gyms ' +
-    '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
-    '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
-    '   WHERE gyms.handle LIKE ? ' +
-    '   AND (calls.time IS NULL OR calls.time > ?)',
-    [`%${handle}%`, now],
+  conn.query({
+    sql:
+      'SELECT * FROM gyms ' +
+      '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
+      '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
+      '   LEFT JOIN rsvps ON calls.id = rsvps.call_id ' +
+      '   WHERE gyms.handle LIKE ? ',
+    values: [`%${handle}%`, now],
+    nestTables: true,
+  }, errwrap(msg, function (msg, results) {
+    if (results.length < 1) {
+      chain_reaccs(msg, 'no_entry_sign');
+      return send_quiet(msg.channel, `No raids matching ${handle}.`);
+    }
+    let [{gyms, raids, calls}] = results;
 
-    errwrap(msg, function (msg, results) {
-      if (results.length < 1) {
-        chain_reaccs(msg, 'no_entry_sign');
-        return send_quiet(msg.channel, `No raids matching ${handle}.`);
-      }
-      let [raid] = results;
+    if (raids.despawn < now) {
+      conn.query(
+        'DELETE FROM raids WHERE gym_id = ?',
+        [raids.gym_id],
+        errwrap(msg)
+      );
+      return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
+    }
 
-      if (raid.despawn < now) {
-        conn.query(
-          'DELETE FROM raids WHERE gym_id = ?',
-          [raid.gym_id],
-          errwrap(msg)
-        );
-        return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
-      }
+    let hatch = hatch_from_despawn(raids.despawn);
 
-      let hatch = hatch_from_despawn(raid.despawn);
+    let output = gym_row_to_string(msg, gyms) + '\n';
 
-      let output = gym_row_to_string(msg, raid) + '\n';
-
-      if (now >= hatch) {
-        output +=`
-raid: **${fmt_boss(raid.boss)}** (T${raid.tier})
-despawn: ${time_to_string(raid.despawn)}`;
-      } else {
-        output +=`
-raid egg: **T${raid.tier}**
+    if (now >= hatch) {
+      output +=`
+raid: **${fmt_boss(raids.boss)}** (T${raids.tier})
+despawn: ${time_to_string(raids.despawn)}`;
+    } else {
+      output +=`
+raid egg: **T${raids.tier}**
 hatch: ${time_to_string(hatch)}`;
-      }
+    }
 
-      if (raid.time !== null) {
-        output += '\ncall times:';
+    if (calls.time !== null) {
+      output += '\n\ncall times:';
 
-        // Now grab all the existing raid calls.
-        for (let call of results) {
-          let member = msg.guild.members.get(call.caller);
-          output +=
-            `\n  - ${time_to_string(call.time)} ` +
-            `with ${member ? member.user.tag : 'unknown'}`;
+      let times = [];
+      let rows_by_time = {};
+
+      for (let row of results) {
+        let t = row.calls.time.getTime();
+        if (t < now) continue;
+
+        if (!(t in rows_by_time)) {
+          times.push(t);
+          rows_by_time[t] = [];
         }
+        rows_by_time[t].push(row);
       }
+      times.sort();
 
-      msg.channel.send(output)
-        .then(m => log_success(msg, `Handled \`raid\` from ${msg.author.tag}.`))
-        .catch(console.error);
-    })
+      for (let t of times) {
+        let [{calls}] = rows_by_time[t];
+
+        let attendees = rows_by_time[t].map(row => {
+          let member = msg.guild.members.get(row.rsvps.user_id);
+          if (member === null ||
+              member.user.id === calls.caller) return null;
+
+          let extras = row.rsvps.extras !== 0
+            ? ` +${row.rsvps.extras}`
+            : null;
+          return `${member.nickname || member.user.username}${extras}`
+        }).filter(a => a !== null);
+
+        let caller = msg.guild.members.get(calls.caller);
+        let caller_str = caller !== null
+          ? `${caller.nickname || caller.user.username}, with `
+          : '';
+
+        output += `\n- **${time_to_string(calls.time)}**—` +
+                  `${caller_str}${attendees.join(', ')}`;
+      }
+    }
+
+    msg.channel.send(output)
+      .then(m => log_success(msg, `Handled \`raid\` from ${msg.author.tag}.`))
+      .catch(console.error);
+  })
   );
 }
 
@@ -664,7 +695,7 @@ function handle_spot_raid(msg, args) {
 // Raid calls.
 
 function handle_call_time(msg, args) {
-  let [handle, time, naccts] = args;
+  let [handle, time, extras] = args;
 
   let call_time = parse_hour_minute(time);
   if (call_time === null) {
@@ -676,7 +707,7 @@ function handle_call_time(msg, args) {
     return log_invalid(msg, `Can't call a time in the past \`${time}\`.`);
   }
 
-  naccts = naccts || 1;
+  extras = extras || 0;
 
   let later = new Date(call_time.getTime());
   later.setMinutes(later.getMinutes() + 45);
@@ -697,7 +728,7 @@ function handle_call_time(msg, args) {
         'INSERT INTO rsvps SET ?',
         { call_id: call_id,
           user_id: msg.author.id,
-          accounts: naccts,
+          extras: extras,
           maybe: false },
         errwrap(msg)
       );
@@ -730,6 +761,33 @@ function handle_call_time(msg, args) {
 }
 
 function handle_join(msg, args) {
+  let [handle, time, extras] = args;
+
+  let call_time = null;
+  if (time) {
+    call_time = parse_hour_minute(time);
+    if (call_time === null) {
+      return log_invalid(msg, `Unrecognized HH:MM time \`${time}\`.`);
+    }
+  }
+
+  extras = extras || 0;
+
+  conn.query(
+    'INSERT INTO rsvps (call_id, user_id, extras, maybe) ' +
+    '   SELECT calls.id, ?, ?, ? ' +
+    '     FROM gyms ' +
+    '       INNER JOIN raids ON gyms.id = raids.gym_id ' +
+    '       INNER JOIN calls ON raids.gym_id = calls.raid_id ' +
+    '   WHERE gyms.handle LIKE ? ' +
+    '     AND ' + (call_time === null
+      ? '   (SELECT COUNT(*) FROM calls ' +
+        '     WHERE raids.gym_id = calls.raid_id) = 1'
+      : '   calls.time = ?'
+    ),
+    [msg.author.id, extras, false, `%${handle}%`, call_time],
+    mutation_handler(msg)
+  );
 }
 
 function handle_unjoin(msg, args) {
