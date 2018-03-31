@@ -355,7 +355,7 @@ function parse_hour_minute(time) {
     now.getFullYear(),
     now.getMonth(),
     now.getDate(),
-    meta.mins + (now.getHours() - (now.getHours() % 12)),
+    (meta.mins % 12) + (now.getHours() - (now.getHours() % 12)),
     meta.secs
   );
 }
