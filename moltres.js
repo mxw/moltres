@@ -281,7 +281,9 @@ function log_invalid(msg, str) {
  */
 function usage_string(cmd) {
   if (!(cmd in cmds)) return null;
-  return `Usage: \`${cmd} ${cmds[cmd].usage}\``;
+  return `Usage: \`${cmd} ${cmds[cmd].usage}\`
+
+Arguments in \`<>\` are required; arguments in \`[]\` are optional.`;
 }
 
 /*
