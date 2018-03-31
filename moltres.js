@@ -494,16 +494,23 @@ function handle_ls_gyms(msg, args) {
 }
 
 function handle_add_gym(msg, args) {
-  if (total_mentions(msg) !== 1) {
-    return log_invalid(msg, usage_string('add-gym'));
-  }
-  let [handle, region, lat, lng, ...name] = args;
+  let [handle, region_in, lat, lng, ...name] = args;
 
-  if (!region.match(Discord.MessageMentions.ROLES_PATTERN) ||
-      msg.mentions.roles.size !== 1) {
-    return log_invalid(msg, `Invalid region \`${region}\`.`);
+  if (lat.charAt(lat.length - 1) === ',') {
+    lat = lat.substr(0, lat.length - 1);
   }
-  region = msg.mentions.roles.first().id;
+
+  let region = function() {
+    if (region_in.match(Discord.MessageMentions.ROLES_PATTERN) &&
+        msg.mentions.roles.size === 1) {
+      return msg.mentions.roles.first().id;
+    }
+    let region = msg.guild.roles.get(region_in);
+    return region ? region.id : null;
+  }();
+  if (region === null) {
+    return log_invalid(msg, `Invalid region \`${region_in}\`.`);
+  }
 
   name = name.join(' ');
 
