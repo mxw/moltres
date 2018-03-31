@@ -287,7 +287,7 @@ function log_invalid(msg, str) {
  */
 function usage_string(cmd) {
   if (!(cmd in cmds)) return null;
-  return `Usage: \`${cmd} ${cmds[cmd].usage}\`
+  return `Usage: \`\$${cmd} ${cmds[cmd].usage}\`
 
 Arguments in \`<>\` are required; arguments in \`[]\` are optional.`;
 }
@@ -406,9 +406,9 @@ function handle_help(msg, args) {
 
   if (args.length === 0) {
     out = get_emoji('valor') +
-          '  Please type `$` followed by your request:\n\n';
+          '  Please choose your request from the following:\n\n';
     for (let cmd of cmd_order) {
-      out += `\`${cmd}\`:  ${cmds[cmd].desc}\n`;
+      out += `\`\$${cmd}\`:  ${cmds[cmd].desc}\n`;
     }
   } else {
     let [cmd] = args;
