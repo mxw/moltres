@@ -96,7 +96,7 @@ const cmds = {
     perms: Permission.TABLE,
     usage: '<handle> <region> <lat> <lng> <name>',
     args: [5, 100],
-    desc: 'Add a new gym to the roost.',
+    desc: 'Add a new gym to the database.',
   },
   'raid': {
     perms: Permission.NONE,
