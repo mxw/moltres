@@ -761,7 +761,6 @@ hatch: ${time_str(hatch)}`;
       // Order and de-dup the call times and bucket rows by those times.
       for (let row of results) {
         let t = row.calls.time.getTime();
-        if (t < now) continue;
 
         if (!(t in rows_by_time)) {
           times.push(t);
