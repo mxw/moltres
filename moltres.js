@@ -949,7 +949,8 @@ function handle_call_time(msg, args) {
           let output =
             `${role_str} **T${raid.tier} ${fmt_boss(raid.boss)}** raid ` +
             `at \`[${raid.handle}]\` ` +
-            `called for ${time_str(call_time)} by ${msg.author}`;
+            `called for ${time_str(call_time)} by ${msg.author}\n\n` +
+            `To join this raid time, enter \`$join ${raid.handle}\`.`;
           send_quiet(msg.channel, output);
         })
       );
