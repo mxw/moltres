@@ -455,7 +455,7 @@ function parse_hour_minute(time) {
 /*
  * Stringify a Date object according to our whims.
  */
-function time_to_string(date) {
+function time_str(date) {
   return date.toLocaleString('en-US', {
     timeZone: 'America/New_York',
     hour: 'numeric',
@@ -696,11 +696,11 @@ function handle_raid(msg, args) {
     if (now >= hatch) {
       output +=`
 raid: **${fmt_boss(raids.boss)}** (T${raids.tier})
-despawn: ${time_to_string(raids.despawn)}`;
+despawn: ${time_str(raids.despawn)}`;
     } else {
       output +=`
 raid egg: **T${raids.tier}**
-hatch: ${time_to_string(hatch)}`;
+hatch: ${time_str(hatch)}`;
     }
 
     if (calls.time !== null) {
@@ -742,7 +742,7 @@ hatch: ${time_to_string(hatch)}`;
           ? caller.nickname || caller.user.username
           : '';
 
-        output += `\n- **${time_to_string(calls.time)}**—` +
+        output += `\n- **${time_str(calls.time)}**—` +
                   `${caller_str}${attendees.length !== 0 ? ', with: ' : ''}` +
                   `${attendees.join(', ')}`;
       }
@@ -779,8 +779,8 @@ function handle_ls_raids(msg, args) {
         let hatch = hatch_from_despawn(raid.despawn);
         let boss = hatch > now ? 'egg' : fmt_boss(raid.boss);
         let timer_str = hatch > now
-          ? `hatches at ${time_to_string(hatch)}`
-          : `despawns at ${time_to_string(raid.despawn)}`
+          ? `hatches at ${time_str(hatch)}`
+          : `despawns at ${time_str(raid.despawn)}`
 
         output +=
           `\n\`[${raid.handle}]\` **T${raid.tier} ${boss}** ${timer_str}`;
@@ -949,7 +949,7 @@ function handle_call_time(msg, args) {
           let output =
             `${role_str} **T${raid.tier} ${fmt_boss(raid.boss)}** raid ` +
             `at \`[${raid.handle}]\` ` +
-            `called for ${time_to_string(call_time)} by ${msg.author}`;
+            `called for ${time_str(call_time)} by ${msg.author}`;
           send_quiet(msg.channel, output);
         })
       );
