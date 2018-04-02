@@ -1131,7 +1131,7 @@ function handle_join(msg, args) {
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
-        `Could not find a unique, active raid for \`${handle}\`` +
+        `Could not find a raid time to join for \`${handle}\`` +
         (call_time !== null
           ? ` with called time \`${time_str(call_time)}\`.`
           : '.')
