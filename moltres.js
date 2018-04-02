@@ -288,6 +288,14 @@ function dm_quiet(user, content) {
 }
 
 /*
+ * Try to delete a message if it's not on a DM channel.
+ */
+function try_delete(msg, timeout = 0) {
+  if (msg.channel.type === 'dm') return;
+  msg.delete(timeout).catch(console.error);
+}
+
+/*
  * Re-load a message for performing further operations.
  */
 function refresh(msg) {
@@ -382,9 +390,7 @@ function log_invalid(msg, str, keep = false) {
     .then(dm => dm.send(str))
     .catch(console.error);
 
-  if (!keep) {
-    msg.delete().catch(console.error);
-  }
+  if (!keep) try_delete(msg);
 };
 
 /*
@@ -563,7 +569,7 @@ function handle_help(msg, args) {
     send_quiet(msg.channel, out.trim());
   } else {
     dm_quiet(msg.author, out.trim());
-    msg.delete(500).catch(console.error);
+    try_delete(msg, 500);
   }
 }
 
