@@ -134,13 +134,13 @@ const cmds = {
     args: [5, 100],
     desc: 'Add a new gym to the database.',
     detail: [
-      'The region can be a tag, a numeric Discord ID, or a prefix of the',
-      'region role name. If a prefix is used, it cannot contain whitespace,',
-      'which means that roles with shared prefixes _must_ be identified by',
-      'tag (which _can_ contain whitespace) or by ID.\n\nThe recommended',
-      'method for adding gyms is to copy information over from',
-      '<http://www.massmwcreaturemap.com/>. Note that the latitude argument',
-      'is allowed to contain a trailing comma, for ease of copying.',
+      'The region can be either an @-tag, a numeric Discord ID, or a',
+      'uniquely-identifying prefix string of the region role name. If a',
+      'string name is used, it must use hyphens instead of whitespace (e.g.,',
+      '`kendall-square` or `Kendall-Square` instead of `Kendall Square`).' +
+      '\n\nThe recommended method for adding gyms is to copy information',
+      'over from <http://www.massmwcreaturemap.com/>. Note that the latitude',
+      'argument is allowed to contain a trailing comma, for ease of copying.',
     ],
   },
   'raid': {
@@ -677,7 +677,7 @@ function handle_add_gym(msg, args) {
     }
 
     // Maybe it's a prefix.
-    let region = get_role(region_in);
+    let region = get_role(region_in.replace(/-/g, ' '));
     if (region) return region.id;
 
     // Maybe it's an ID.
