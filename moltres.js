@@ -868,6 +868,18 @@ function handle_report(msg, handle, tier_in, boss, timer_in) {
         `No unique gym match found for \`${handle}\` that doesn't already ` +
         'have an active raid.'
       );
+    }, function (msg, result) {
+      let output = `**T${tier} `;
+      if (boss === null) {
+        let hatch = hatch_from_despawn(despawn);
+        output += `egg** hatches at \`[${handle}]\` at ${time_str(hatch)} `;
+      } else {
+        output += `${fmt_boss(boss)} raid** despawns at \`[${handle}]\` ` +
+                  `at ${time_str(despawn)} `;
+      }
+      output += `(reported by ${msg.author}).`;
+
+      send_quiet(msg.channel, output);
     })
   );
 }
