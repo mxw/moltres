@@ -350,14 +350,16 @@ function react_success(msg, reacc = null) {
 function log_error(msg, str, reacc = null) {
   log_impl(msg, str, reacc || 'no_good');
 };
-function log_invalid(msg, str) {
+function log_invalid(msg, str, keep = false) {
   log_impl(msg, str, null);
 
   msg.author.createDM()
     .then(dm => dm.send(str))
     .catch(console.error);
 
-  msg.delete().catch(console.error);
+  if (!keep) {
+    msg.delete().catch(console.error);
+  }
 };
 
 /*
@@ -395,12 +397,30 @@ function errwrap(msg, fn = null) {
 /*
  * Wrapper around common handling for mutation requests.
  */
-function mutation_handler(msg) {
+function mutation_handler(msg, failure = null, success = null) {
   return errwrap(msg, function (msg, result) {
+    /*
+     * The `result' for a mutation has the following structure:
+     *
+     * OkPacket {
+     *   fieldCount: 0,
+     *   affectedRows: 1,
+     *   insertId: 23,
+     *   serverStatus: 34,
+     *   warningCount: 0,
+     *   message: '&Records: 1  Duplicates: 0  Warnings: 0',
+     *   protocol41: true,
+     *   changedRows: 0,
+     * }
+     */
     if (result.affectedRows === 0) {
-      chain_reaccs(msg, 'thinking', 'larvitar');
+      if (failure !== null) failure(msg, result);
     } else {
-      react_success(msg);
+      if (success !== null) {
+        success(msg, result);
+      } else {
+        react_success(msg);
+      }
     }
   })
 }
@@ -529,7 +549,7 @@ function handle_test(msg, args) {
 function check_one_gym(msg, handle, results) {
   if (results.length < 1) {
     chain_reaccs(msg, 'cry');
-    send_quiet(msg.channel, `No unique gym match for \`${handle}\`.`);
+    send_quiet(msg.channel, `No unique gym match found for \`${handle}\`.`);
     return false;
   } else if (results.length > 1) {
     log_invalid(msg, `Multiple gyms matching \`${handle}\`.`);
@@ -824,7 +844,13 @@ function handle_report(msg, handle, tier_in, boss, timer_in) {
     '     ) ' +
     '   AND ' + where_one_gym,
     [tier, boss, despawn, msg.author.id, `%${handle}%`, pop, `%${handle}%`],
-    mutation_handler(msg)
+
+    mutation_handler(msg, function (msg, result) {
+      log_invalid(msg,
+        `No unique gym match found for \`${handle}\` that doesn't already ` +
+        'have an active raid.'
+      );
+    })
   );
 }
 
@@ -881,7 +907,12 @@ function handle_update(msg, args) {
     'UPDATE raids INNER JOIN gyms ON raids.gym_id = gyms.id ' +
     'SET ? WHERE gyms.handle LIKE ? AND ' + where_one_gym,
     [assignment, `%${handle}%`, `%${handle}%`],
-    mutation_handler(msg)
+
+    mutation_handler(msg, function (msg, result) {
+      log_invalid(msg,
+        `No unique gym match found for \`${handle}\` with an active raid.`
+      );
+    })
   );
 }
 
@@ -917,7 +948,13 @@ function handle_call_time(msg, args) {
     '     AND ' + where_one_gym,
     [msg.author.id, call_time, `%${handle}%`, call_time, later, `%${handle}%`],
 
-    errwrap(msg, function (msg, result) {
+    mutation_handler(msg, function (msg, result) {
+      log_invalid(msg,
+        `Could not find a unique raid for \`${handle}\` with call time ` +
+        `\`${time_str(call_time)}\` after hatch and before despawn ` +
+        `(or this time has already been called).`
+      );
+    }, function (msg, result) {
       let call_id = result.insertId;
 
       conn.query(
@@ -986,7 +1023,15 @@ function handle_join(msg, args) {
       : '   calls.time = ?'
     ),
     [msg.author.id, extras, false, `%${handle}%`, `%${handle}%`, call_time],
-    mutation_handler(msg)
+
+    mutation_handler(msg, function (msg, result) {
+      log_invalid(msg,
+        `Could not find a unique, active raid for \`${handle}\`` +
+        (call_time !== null
+          ? ` with called time \`${time_str(call_time)}\`.`
+          : '.')
+      );
+    })
   );
 }
 
