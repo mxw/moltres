@@ -256,10 +256,15 @@ const raid_tiers = {
 // Discord utilities.
 
 /*
- * Wrapper around send() that swallows exceptions.
+ * Wrappers around send() that swallow exceptions.
  */
 function send_quiet(channel, content) {
   return channel.send(content).catch(console.error);
+}
+function dm_quiet(user, content) {
+  return user.createDM()
+    .then(dm => dm.send(content))
+    .catch(console.error);
 }
 
 /*
@@ -532,7 +537,13 @@ function handle_help(msg, args) {
     let [cmd] = args;
     out = `\`${cmd}\`:  ${cmds[cmd].desc}\n${usage_string(cmd)}`;
   }
-  send_quiet(msg.channel, out.trim());
+
+  if (config.admin_ids.has(msg.author.id)) {
+    send_quiet(msg.channel, out.trim());
+  } else {
+    dm_quiet(msg.author, out.trim());
+    msg.delete(500).catch(console.error);
+  }
 }
 
 function handle_set_perm(msg, args) {
