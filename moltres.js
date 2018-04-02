@@ -448,27 +448,45 @@ function parse_timer(timer) {
   let matches = timer.match(/^(\d{1,2}):(\d\d)$/);
   if (matches === null) return null;
 
-  return {
-    mins: parseInt(matches[1]),
-    secs: parseInt(matches[2]),
-  };
+  let [_, mins, secs] = matches;
+  if (secs >= 60) return null;
+
+  return { mins: parseInt(mins), secs: parseInt(secs) };
 }
 
 /*
  * Parse a time given by HH:MM as a Date object.
+ *
+ * This function uses rough heuristics to determine whether the user meant A.M.
+ * or P.M., based on the assumption that the intent is always to represent the
+ * most proximal time in the future.
  */
 function parse_hour_minute(time) {
-  // Re-use parse_timer() even though it thinks in MM:SS.
-  let meta = parse_timer(time);
-  if (meta === null) return null;
+  let matches = time.match(/^(\d{1,2}):(\d\d)$/);
+  if (matches === null) return null;
+
+  let [_, hours, mins] = matches;
+  if (hours >= 24 || mins >= 60) return null;
 
   let now = get_now();
+
+  hours = function() {
+    // 24-hour time; let the user use exactly that time.
+    if (hours >= 13) return hours;
+    // Same or later morning hour.
+    if (hours >= now.getHours()) return hours;
+    // Same or later afternoon hour if we interpret as P.M.
+    if (hours + 12 >= now.getHours()) return hours + 12;
+
+    return hours;
+  }();
+
   return new Date(
     now.getFullYear(),
     now.getMonth(),
     now.getDate(),
-    (meta.mins % 12) + (now.getHours() - (now.getHours() % 12)),
-    meta.secs
+    hours,
+    mins
   );
 }
 
