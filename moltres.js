@@ -906,6 +906,9 @@ function handle_update(msg, args) {
     let despawn = parse_hour_minute(data);
     if (despawn !== null && despawn > now &&
         pop_from_despawn(despawn) <= now) {
+      // See the comment in handle_call_time() for the reason behind adding
+      // this extra second.
+      despawn.setSeconds(despawn.getSeconds());
       return { despawn: despawn };
     }
 
@@ -953,8 +956,15 @@ function handle_call_time(msg, args) {
 
   extras = extras || 0;
 
+  // This is a janky way to allow for raids at exactly hatch.  The main
+  // shortcoming is that if a raid's despawn is at an exact minute, this will
+  // let users call a raid time a minute before hatch.
+  //
+  // In practice, this is extremely unlikely, and to avoid this situation for
+  // manual hatch/despawn time changes, we add a dummy second to all explicit
+  // user-declared raid despawn times.
   let later = new Date(call_time.getTime());
-  later.setMinutes(later.getMinutes() + 45);
+  later.setMinutes(later.getMinutes() + 46);
 
   conn.query(
     'INSERT INTO calls (raid_id, caller, time) ' +
