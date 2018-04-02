@@ -256,6 +256,13 @@ const raid_tiers = {
 // Discord utilities.
 
 /*
+ * Get the main guild for bot requests.
+ */
+function guild() {
+  return moltres.guilds.get(config.guild_id);
+}
+
+/*
  * Wrappers around send() that swallow exceptions.
  */
 function send_quiet(channel, content) {
@@ -311,11 +318,11 @@ function chain_reaccs(msg, ...reaccs) {
 /*
  * Get a Role by `name' for the guild `msg' belongs to.
  */
-function get_role(msg, name) {
-  let role = msg.guild.roles.find('name', name);
+function get_role(name) {
+  let role = guild().roles.find('name', name);
   if (role) return role;
 
-  let matches = msg.guild.roles.filterArray(
+  let matches = guild().roles.filterArray(
     role => role.name.toLowerCase().startsWith(name.toLowerCase())
   );
   return matches.length === 1 ? matches[0] : null;
@@ -593,7 +600,7 @@ function check_one_gym(msg, handle, results) {
 function gym_row_to_string(msg, gym) {
   return `\`[${gym.handle}]\`
 name: **${gym.name}**
-region: ${msg.guild.roles.get(gym.region).name}
+region: ${guild().roles.get(gym.region).name}
 coords: <https://maps.google.com/maps?q=${gym.lat},${gym.lng}>`;
 }
 
@@ -618,7 +625,7 @@ function handle_gym(msg, args) {
 
 function handle_ls_gyms(msg, args) {
   let role_name = args.join(' ');
-  let role = get_role(msg, role_name);
+  let role = get_role(role_name);
   if (role === null) {
     return log_invalid(msg, `Invalid region name \`${role_name}\`.`);
   }
@@ -656,11 +663,11 @@ function handle_add_gym(msg, args) {
     }
 
     // Maybe it's a prefix.
-    let region = get_role(msg, region_in);
+    let region = get_role(region_in);
     if (region) return region.id;
 
     // Maybe it's an ID.
-    region = msg.guild.roles.get(region_in);
+    region = guild().roles.get(region_in);
     return region ? region.id : null;
   }();
   if (region === null) {
@@ -776,7 +783,7 @@ hatch: ${time_str(hatch)}`;
 
         // Get an array of attendee strings, removing the raid time caller.
         let attendees = rows_by_time[t].map(row => {
-          let member = msg.guild.members.get(row.rsvps.user_id);
+          let member = guild().members.get(row.rsvps.user_id);
           if (!member || member.user.id === calls.caller) return null;
 
           let extras = row.rsvps.extras !== 0
@@ -785,7 +792,7 @@ hatch: ${time_str(hatch)}`;
           return `${member.nickname || member.user.username}${extras}`
         }).filter(a => a !== null);
 
-        let caller = msg.guild.members.get(calls.caller);
+        let caller = guild().members.get(calls.caller);
         let caller_str = caller
           ? caller.nickname || caller.user.username
           : '';
@@ -804,7 +811,7 @@ hatch: ${time_str(hatch)}`;
 
 function handle_ls_raids(msg, args) {
   let role_name = args.join(' ');
-  let role = get_role(msg, role_name);
+  let role = get_role(role_name);
   if (role === null) {
     return log_invalid(msg, `Invalid region name \`${role_name}\`.`);
   }
