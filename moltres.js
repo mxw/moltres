@@ -560,6 +560,17 @@ function handle_help(msg, args) {
     for (let cmd of cmd_order) {
       out += `\`\$${cmd}\`:  ${cmds[cmd].desc}\n`;
     }
+    out += [
+      '\nMake sure you prefix the request name with a dollar sign, with no',
+      'space in-between.\n\nMost requests can be made via DM in addition to',
+      'in regional channels.  Please be thoughtful about where you make your',
+      'requests.  If you\'re pubbing some recently reported raids, trying to',
+      'get numbers, answering a question for someone, etc., use the channel. ',
+      'If you just got free and want to check on the current raid landscape,',
+      'do that in a DM.\n\nUse `$help <req>` (e.g., `$help ls-gyms`) to learn',
+      'more about a specific request.\n\nMoltres\'s trainer is @mxawng#8480. ',
+      'You can help out at: <https://github.com/mxw/moltres>',
+    ].join(' ');
   } else {
     let [cmd] = args;
     out = `\`${cmd}\`:  ${cmds[cmd].desc}\n${usage_string(cmd)}`;
