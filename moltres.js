@@ -491,6 +491,7 @@ function parse_hour_minute(time) {
   if (matches === null) return null;
 
   let [_, hours, mins] = matches;
+  [hours, mins] = [parseInt(hours), parseInt(mins)];
   if (hours >= 24 || mins >= 60) return null;
 
   let now = get_now();
