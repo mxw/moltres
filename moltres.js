@@ -70,6 +70,7 @@ const cmd_order = [
 const cmds = {
   'help': {
     perms: Permission.NONE,
+    dm: true,
     usage: '[request]',
     args: [0, 1],
     desc: 'Learn about our team\'s legendary avatar.',
@@ -81,6 +82,7 @@ const cmds = {
   },
   'set-perm': {
     perms: Permission.TABLE,
+    dm: false,
     usage: '<user> <request>',
     args: [2, 2],
     desc: 'Enable others to use more requests.',
@@ -90,6 +92,7 @@ const cmds = {
   },
   'test': {
     perms: Permission.ADMIN,
+    dm: false,
     usage: '',
     args: [0, 100],
     desc: 'Flavor of the week testing command.',
@@ -99,6 +102,7 @@ const cmds = {
   },
   'gym': {
     perms: Permission.NONE,
+    dm: true,
     usage: '<handle>',
     args: [1, 1],
     desc: 'Get information about a gym.',
@@ -112,6 +116,7 @@ const cmds = {
   },
   'ls-gyms': {
     perms: Permission.NONE,
+    dm: true,
     usage: '<region-name>',
     args: [1, 100],
     desc: 'List all gyms in a region.',
@@ -124,6 +129,7 @@ const cmds = {
   },
   'add-gym': {
     perms: Permission.TABLE,
+    dm: false,
     usage: '<handle> <region> <lat> <lng> <name>',
     args: [5, 100],
     desc: 'Add a new gym to the database.',
@@ -139,6 +145,7 @@ const cmds = {
   },
   'raid': {
     perms: Permission.NONE,
+    dm: true,
     usage: '<gym-handle>',
     args: [1, 1],
     desc: 'Get information about the current raid at a gym.',
@@ -148,6 +155,7 @@ const cmds = {
   },
   'ls-raids': {
     perms: Permission.NONE,
+    dm: true,
     usage: '<region-name>',
     args: [1, 100],
     desc: 'List all active raids in a region.',
@@ -160,6 +168,7 @@ const cmds = {
   },
   'egg': {
     perms: Permission.NONE,
+    dm: false,
     usage: '<gym-handle> <tier> <time-til-hatch MM:SS>',
     args: [3, 3],
     desc: 'Report a raid egg.',
@@ -171,6 +180,7 @@ const cmds = {
   },
   'boss': {
     perms: Permission.NONE,
+    dm: false,
     usage: '<gym-handle> <boss> <time-til-despawn MM:SS>',
     args: [3, 3],
     desc: 'Report a hatched raid boss.',
@@ -181,6 +191,7 @@ const cmds = {
   },
   'update': {
     perms: Permission.NONE,
+    dm: false,
     usage: '<gym-handle> <tier-or-boss-or-despawn-time>',
     args: [2, 2],
     desc: 'Modify an active raid listing.',
@@ -191,6 +202,7 @@ const cmds = {
   },
   'call-time': {
     perms: Permission.NONE,
+    dm: false,
     usage: '<gym-handle> <HH:MM> [num-extras]',
     args: [2, 3],
     desc: 'Call a time for a raid.',
@@ -200,6 +212,7 @@ const cmds = {
   },
   'join': {
     perms: Permission.NONE,
+    dm: false,
     usage: '<gym-handle> [HH:MM] [num-extras]',
     args: [1, 3],
     desc: 'Join a called raid time.',
@@ -1147,6 +1160,10 @@ function handle_request_with_check(msg, request, args) {
     return log_invalid(msg, `Invalid request \`${request}\`.`);
   }
 
+  if (!cmds[request].dm && msg.channel.type === 'dm') {
+    return log_invalid(msg, `\`\$${request}\` can't be handled via DM`, true);
+  }
+
   if (config.admin_ids.has(user_id) ||
       cmds[request].perms === Permission.NONE) {
     return handle_request(msg, request, args);
@@ -1186,7 +1203,8 @@ function process_request(msg) {
  * Main reader event.
  */
 moltres.on('message', msg => {
-  if (config.channels.has(msg.channel.id)) {
+  if (config.channels.has(msg.channel.id) ||
+      msg.channel.type === 'dm') {
     try {
       process_request(msg);
     } catch (e) {
