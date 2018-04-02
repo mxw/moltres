@@ -374,9 +374,6 @@ function log_impl(msg, str, reacc) {
 /*
  * Log a successful request, an invalid request, or an internal error.
  */
-function log_success(msg, str, reacc = null) {
-  log_impl(msg, str, reacc);
-};
 function react_success(msg, reacc = null) {
   log_impl(msg, null, reacc || 'approved');
 };
@@ -647,9 +644,7 @@ function handle_gym(msg, args) {
       if (!check_one_gym(msg, handle, results)) return;
       let [gym] = results;
 
-      msg.channel.send(gym_row_to_string(msg, gym))
-        .then(m => log_success(msg, `Handled \`gym\` from ${msg.author.tag}.`))
-        .catch(console.error);
+      send_quiet(msg.channel, gym_row_to_string(msg, gym));
     })
   );
 }
@@ -838,9 +833,7 @@ hatch: ${time_str(hatch)}`;
       }
     }
 
-    msg.channel.send(output)
-      .then(m => log_success(msg, `Handled \`raid\` from ${msg.author.tag}.`))
-      .catch(console.error);
+    send_quiet(msg.channel, output);
   }));
 }
 
