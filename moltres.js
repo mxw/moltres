@@ -1081,14 +1081,27 @@ function handle_join(msg, args) {
   handle = handle.toLowerCase();
 
   let call_time = null;
-  if (time) {
+
+  let ok = function() {
+    if (!time) return true;
+
     call_time = parse_hour_minute(time);
-    if (call_time === null) {
-      return log_invalid(msg, `Unrecognized HH:MM time \`${time}\`.`);
+    if (call_time !== null) return true;
+
+    if (!extras) {
+      let matches = time.match(/^(\d+)$/);
+      if (matches !== null) {
+        extras = matches[1];
+        return true;
+      }
     }
+    return false;
+  }();
+  if (!ok) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${time}\`.`);
   }
 
-  extras = extras || 0;
+  extras = parseInt(extras || 0);
 
   conn.query(
     'INSERT INTO rsvps (call_id, user_id, extras, maybe) ' +
