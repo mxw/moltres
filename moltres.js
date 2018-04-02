@@ -358,7 +358,7 @@ function total_mentions(msg) {
 function log_impl(msg, str, reacc) {
   if (str !== null) {
     let log = moltres.channels.get(config.log_id);
-    send_quiet(log, str);
+    send_quiet(log, `    ${str}`);
   }
   if (reacc !== null) chain_reaccs(msg, reacc);
 };
@@ -1158,6 +1158,10 @@ function handle_request(msg, request, args) {
  */
 function handle_request_with_check(msg, request, args) {
   let user_id = msg.author.id;
+
+  let log = moltres.channels.get(config.log_id);
+  let output = `[${msg.author.tag}] \`\$${request}\` ${args.join(' ')}`;
+  send_quiet(log, output);
 
   request = cmd_aliases[request] || request;
 
