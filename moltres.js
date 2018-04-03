@@ -655,10 +655,12 @@ function handle_test(msg, args) {
 function check_one_gym(msg, handle, results) {
   if (results.length < 1) {
     chain_reaccs(msg, 'cry');
-    send_quiet(msg.channel, `No unique gym match found for \`${handle}\`.`);
+    send_quiet(msg.channel,
+      `No unique gym match found for \`[${handle}]\`.`
+    );
     return false;
   } else if (results.length > 1) {
-    log_invalid(msg, `Multiple gyms matching \`${handle}\`.`);
+    log_invalid(msg, `Multiple gyms matching \`[${handle}]\`.`);
     return false;
   }
   return true;
@@ -791,7 +793,9 @@ function handle_raid(msg, args) {
   select_rsvps('', [], handle, errwrap(msg, function (msg, results) {
     if (results.length < 1) {
       chain_reaccs(msg, 'no_entry_sign');
-      return send_quiet(msg.channel, `No unique raid found for ${handle}.`);
+      return send_quiet(msg.channel,
+        `No unique raid found for \`[${handle}]\`.`
+      );
     }
     let [{gyms, raids, calls}] = results;
 
@@ -943,8 +947,8 @@ function handle_report(msg, handle, tier_in, boss, timer_in) {
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
-        `No unique gym match found for \`${handle}\` that doesn't already ` +
-        'have an active raid.'
+        `No unique gym match found for \`[${handle}]\` that doesn't ` +
+        'already have an active raid.'
       );
     }, function (msg, result) {
       let output = `**T${tier} `;
@@ -1021,7 +1025,7 @@ function handle_update(msg, args) {
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
-        `No unique gym match found for \`${handle}\` with an active raid.`
+        `No unique gym match found for \`[${handle}]\` with an active raid.`
       );
     })
   );
@@ -1115,7 +1119,7 @@ function handle_call_time(msg, args) {
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
-        `Could not find a unique raid for \`${handle}\` with call time ` +
+        `Could not find a unique raid for \`[${handle}]\` with call time ` +
         `\`${time_str(call_time)}\` after hatch and before despawn ` +
         `(or this time has already been called).`
       );
@@ -1198,7 +1202,7 @@ function handle_change_time(msg, args) {
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
-        `No raid at \`${time_str(current)}\` found for \`${handle}\` ` +
+        `No raid at \`${time_str(current)}\` found for \`[${handle}]\` ` +
         `(or \`${time_str(desired)}\` is not a valid raid time).`
       );
     }, function (msg, result) {
@@ -1269,7 +1273,7 @@ function handle_join(msg, args) {
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
-        `Could not find a raid time to join for \`${handle}\`` +
+        `Could not find a raid time to join for \`[${handle}]\`` +
         (call_time !== null
           ? ` with called time \`${time_str(call_time)}\`.`
           : '.')
