@@ -860,13 +860,15 @@ hatch: ${time_str(hatch)}`;
         }).filter(a => a !== null);
 
         let caller = guild().members.get(calls.caller);
-        let caller_str = caller
-          ? caller.nickname || caller.user.username
-          : '';
+        let caller_str = '';
 
+        if (caller) {
+          caller_str =
+            `${caller.nickname || caller.user.username} _(caller)_` +
+            (attendees.length !== 0 ? ', ' : '');
+        }
         output += `\n- **${time_str(calls.time)}** (${total} raiders)—` +
-                  `${caller_str}${attendees.length !== 0 ? ', with: ' : ''}` +
-                  `${attendees.join(', ')}`;
+                  `${caller_str}${attendees.join(', ')}`;
       }
     }
 
