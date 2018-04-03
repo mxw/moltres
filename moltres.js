@@ -511,7 +511,7 @@ function get_now() {
  * Extract the minutes and seconds from a raid countdown timer.
  */
 function parse_timer(timer) {
-  let matches = timer.match(/^(\d{1,2}):(\d\d)$/);
+  let matches = timer.match(/^(\d{1,2})[:.](\d\d)$/);
   if (matches === null) return null;
 
   let [_, mins, secs] = matches;
@@ -528,7 +528,7 @@ function parse_timer(timer) {
  * most proximal time in the future.
  */
 function parse_hour_minute(time) {
-  let matches = time.match(/^(\d{1,2}):(\d\d)$/);
+  let matches = time.match(/^(\d{1,2})[:.](\d\d)$/);
   if (matches === null) return null;
 
   let [_, hours, mins] = matches;
