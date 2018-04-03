@@ -240,27 +240,35 @@ const cmd_aliases = {
 };
 
 const raid_tiers = {
+  magikarp: 1,
+  duskull: 1,
+  shuppet: 1,
   snorunt: 1,
   swablu: 1,
   wailmer: 1,
-  magikarp: 1,
 
-  manectric: 2,
-  mawile: 2,
-  sableye: 2,
   electabuzz: 2,
   exeggutor: 2,
+  manectric: 2,
+  mawile: 2,
+  misdreavus: 2,
+  sableye: 2,
+  sneasel: 2,
 
-  piloswine: 3,
+  gengar: 3,
+  granbull: 3,
   jolteon: 3,
   jynx: 3,
-  gengar: 3,
   machamp: 3,
+  piloswine: 3,
+  pinsir: 3,
 
   absol: 4,
   aggron: 4,
-  tyranitar: 4,
   golem: 4,
+  houndoom: 4,
+  tyranitar: 4,
+  walrein: 4,
 
   latios: 5,
 };
