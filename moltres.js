@@ -382,12 +382,12 @@ function total_mentions(msg) {
 /*
  * Log base function.
  */
-function log_impl(msg, str, reacc) {
-  if (str !== null) {
+function log_impl(msg, str, reacc = null) {
+  if (str) {
     let log = moltres.channels.get(config.log_id);
     send_quiet(log, `    ${str}`);
   }
-  if (reacc !== null) chain_reaccs(msg, reacc);
+  if (reacc) chain_reaccs(msg, reacc);
 };
 
 /*
@@ -1049,6 +1049,35 @@ function get_all_raiders(msg, handle, time, fn) {
   );
 }
 
+/*
+ * Set a timeout to ping raiders for `handle' `before' minutes before
+ * `call_time'.
+ */
+function set_raid_alarm(msg, handle, call_time, before = 7) {
+  let alarm_time = new Date(call_time.getTime());
+  alarm_time.setMinutes(alarm_time.getMinutes() - before);
+
+  let delay = alarm_time - get_now();
+  if (delay <= 0) return;
+
+  log_impl(msg,
+    `Setting alarm for \`[${handle}]\` at \`${time_str(alarm_time)}\`.`
+  );
+
+  setTimeout(function() {
+    get_all_raiders(msg, handle, call_time, function (msg, row, raiders) {
+      // The call time might have changed, or everyone may have unjoined.
+      if (row === null || raiders.length === 0) return;
+      let handle = row.gyms.handle;
+
+      let output =
+        `Raid call for \`[${handle}]\` at \`${time_str(call_time)}\` ` +
+        `is in ${before} minutes!\n\n${raiders.join(' ')}`;
+      send_quiet(msg.channel, output);
+    });
+  }, delay);
+}
+
 function handle_call_time(msg, args) {
   let [handle, time, extras] = args;
   handle = handle.toLowerCase();
@@ -1125,6 +1154,8 @@ function handle_call_time(msg, args) {
             `called for ${time_str(call_time)} by ${msg.author}\n\n` +
             `To join this raid time, enter \`$join ${raid.handle}\`.`;
           send_quiet(msg.channel, output);
+
+          set_raid_alarm(msg, handle, call_time);
         })
       );
     })
@@ -1187,6 +1218,8 @@ function handle_change_time(msg, args) {
           output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
         }
         send_quiet(msg.channel, output);
+
+        set_raid_alarm(msg, handle, desired);
       });
     })
   );
