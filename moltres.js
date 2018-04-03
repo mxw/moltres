@@ -64,7 +64,7 @@ const cmd_order = [
   'help', 'set-perm', 'test',
   'gym', 'ls-gyms', 'add-gym',
   'raid', 'ls-raids', 'egg', 'boss', 'update',
-  'call-time', 'join', // 'unjoin',
+  'call-time', 'change-time', 'join', // 'unjoin',
 ];
 
 const cmds = {
@@ -208,6 +208,17 @@ const cmds = {
     desc: 'Call a time for a raid.',
     detail: [
       'Make sure not to double-call a time, or Moltres will be mad at you.',
+    ],
+  },
+  'change-time': {
+    perms: Permission.NONE,
+    dm: false,
+    usage: '<gym-handle> <current-HH:MM> to <desired-HH:MM>',
+    args: [4, 4],
+    desc: 'Change a called time for a raid.',
+    detail: [
+      'Make sure to include the `to`; it\'s just there to enforce the right',
+      'direction.',
     ],
   },
   'join': {
@@ -1015,6 +1026,25 @@ function handle_update(msg, args) {
 ///////////////////////////////////////////////////////////////////////////////
 // Raid call handlers.
 
+/*
+ * Get an array of all the users attending the raid at `handle' at `time'.
+ */
+function get_all_raiders(msg, handle, time, fn) {
+  select_rsvps('AND calls.time = ?', [time], handle,
+    errwrap(msg, function (msg, results) {
+      if (results.length < 1) return fn(msg, null, []);
+
+      let raiders = [];
+
+      for (let row of results) {
+        let member = guild().members.get(row.rsvps.user_id);
+        if (member) raiders.push(member.user);
+      }
+      fn(msg, results[0], raiders);
+    })
+  );
+}
+
 function handle_call_time(msg, args) {
   let [handle, time, extras] = args;
   handle = handle.toLowerCase();
@@ -1045,11 +1075,10 @@ function handle_call_time(msg, args) {
     'INSERT INTO calls (raid_id, caller, time) ' +
     '   SELECT raids.gym_id, ?, ? FROM gyms INNER JOIN raids ' +
     '     ON gyms.id = raids.gym_id ' +
-    '   WHERE gyms.handle LIKE ? ' +
+    '   WHERE gyms.handle LIKE ? AND ' + where_one_gym +
     '     AND raids.despawn > ? ' +
-    '     AND raids.despawn <= ? ' +
-    '     AND ' + where_one_gym,
-    [msg.author.id, call_time, `%${handle}%`, call_time, later, `%${handle}%`],
+    '     AND raids.despawn <= ? ',
+    [msg.author.id, call_time, `%${handle}%`, `%${handle}%`, call_time, later],
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
@@ -1094,6 +1123,67 @@ function handle_call_time(msg, args) {
           send_quiet(msg.channel, output);
         })
       );
+    })
+  );
+}
+
+function handle_change_time(msg, args) {
+  let [handle, current_in, to, desired_in] = args;
+  handle = handle.toLowerCase();
+
+  let current = parse_hour_minute(current_in);
+  if (current === null) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${current_in}\`.`);
+  }
+
+  let desired = parse_hour_minute(desired_in);
+  if (desired === null) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${desired_in}\`.`);
+  }
+
+  // See comment in handle_call_time().
+  let later = new Date(desired.getTime());
+  later.setMinutes(later.getMinutes() + 46);
+
+  let assignment = {
+    caller: msg.author.id,
+    time: desired,
+  };
+
+  conn.query(
+    'UPDATE calls ' +
+    '   INNER JOIN raids ON calls.raid_id = raids.gym_id ' +
+    '   INNER JOIN gyms ON raids.gym_id = gyms.id ' +
+    'SET ? ' +
+    'WHERE gyms.handle LIKE ? AND ' + where_one_gym +
+    '   AND raids.despawn > ? ' +
+    '   AND raids.despawn <= ? ' +
+    '   AND calls.time = ? ',
+    [assignment, `%${handle}%`, `%${handle}%`, desired, later, current],
+
+    mutation_handler(msg, function (msg, result) {
+      log_invalid(msg,
+        `No raid at \`${time_str(current)}\` found for \`${handle}\` ` +
+        `(or \`${time_str(desired)}\` is not a valid raid time).`
+      );
+    }, function (msg, result) {
+      get_all_raiders(msg, handle, desired, function (msg, row, raiders) {
+        // No raiders is weird, but it could happen if everyone unjoins and
+        // someone decides to change the raid time for no meaningful reason.
+        if (row === null || raiders.length === 0) return;
+
+        raiders = raiders.filter(user => user.id != msg.author.id);
+
+        let output =
+          `Raid time changed for \`${row.gyms.name}\` ` +
+          `from ${time_str(current)} to ${time_str(desired)} ` +
+          `by ${msg.author}.  CA-CAAW!`;
+
+        if (raiders.length !== 0) {
+          output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
+        }
+        send_quiet(msg.channel, output);
+      });
     })
   );
 }
@@ -1186,6 +1276,7 @@ function handle_request(msg, request, args) {
     case 'update':    return handle_update(msg, args);
 
     case 'call-time': return handle_call_time(msg, args);
+    case 'change-time': return handle_change_time(msg, args);
     case 'join':      return handle_join(msg, args);
     case 'unjoin':    return handle_unjoin(msg, args);
     default:
