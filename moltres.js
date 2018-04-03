@@ -61,9 +61,9 @@ const Permission = {
  * Order of display for $help.
  */
 const cmd_order = [
-  'help', 'set-perm', 'test',
-  'gym', 'ls-gyms', 'add-gym',
-  'raid', 'ls-raids', 'egg', 'boss', 'update',
+  'help', 'set-perm', 'test', null,
+  'gym', 'ls-gyms', 'add-gym', null,
+  'raid', 'ls-raids', 'egg', 'boss', 'update', null,
   'call-time', 'change-time', 'join', // 'unjoin',
 ];
 
@@ -593,7 +593,11 @@ function handle_help(msg, args) {
     out = get_emoji('valor') +
           '  Please choose your request from the following:\n\n';
     for (let cmd of cmd_order) {
-      out += `\`\$${cmd}\`:  ${cmds[cmd].desc}\n`;
+      if (cmd !== null) {
+        out += `\`\$${cmd}\`:  ${cmds[cmd].desc}\n`;
+      } else {
+        out += '\n';
+      }
     }
     out += [
       '\nMake sure you prefix the request name with a dollar sign, with no',
