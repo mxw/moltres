@@ -467,6 +467,25 @@ function mutation_handler(msg, failure = null, success = null) {
 const where_one_gym =
   ' (SELECT COUNT(*) FROM gyms WHERE gyms.handle LIKE ?) = 1 ';
 
+/*
+ * Select all rows from the full left-join raid-rsvps table for a unique gym
+ * `handle' and satisfying `xtra_where'.
+ *
+ * Call `fn' to handle the result of the query.
+ */
+function select_rsvps(xtra_where, xtra_values, handle, fn) {
+  conn.query({
+    sql:
+      'SELECT * FROM gyms ' +
+      '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
+      '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
+      '   LEFT JOIN rsvps ON calls.id = rsvps.call_id ' +
+      '   WHERE gyms.handle LIKE ? AND ' + where_one_gym + xtra_where,
+    values: [`%${handle}%`, `%${handle}%`].concat(xtra_values),
+    nestTables: true,
+  }, fn);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Time utilities.
 
@@ -754,16 +773,7 @@ function handle_raid(msg, args) {
 
   let now = get_now();
 
-  conn.query({
-    sql:
-      'SELECT * FROM gyms ' +
-      '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
-      '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
-      '   LEFT JOIN rsvps ON calls.id = rsvps.call_id ' +
-      '   WHERE gyms.handle LIKE ? AND ' + where_one_gym,
-    values: [`%${handle}%`, `%${handle}%`],
-    nestTables: true,
-  }, errwrap(msg, function (msg, results) {
+  select_rsvps('', [], handle, errwrap(msg, function (msg, results) {
     if (results.length < 1) {
       chain_reaccs(msg, 'no_entry_sign');
       return send_quiet(msg.channel, `No unique raid found for ${handle}.`);
