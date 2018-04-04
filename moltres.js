@@ -487,6 +487,19 @@ function where_one_gym(handle) {
 }
 
 /*
+ * Get a SQL WHERE clause fragment for selecting a specific call time.
+ *
+ * If `time' is null, instead we select for a single unique time.
+ */
+function where_call_time(call_time = null) {
+  if (call_time !== null) {
+    return mysql.format(' calls.time = ? ', [call_time]);
+  }
+  return ' (SELECT COUNT(*) FROM calls ' +
+         '  WHERE raids.gym_id = calls.raid_id) = 1 ';
+}
+
+/*
  * Select all rows from the full left-join raid-rsvps table for a unique gym
  * `handle' and satisfying `xtra_where'.
  *
@@ -1276,12 +1289,8 @@ function handle_join(msg, args) {
     '       INNER JOIN raids ON gyms.id = raids.gym_id ' +
     '       INNER JOIN calls ON raids.gym_id = calls.raid_id ' +
     '   WHERE ' + where_one_gym(handle) +
-    '     AND ' + (call_time === null
-      ? '   (SELECT COUNT(*) FROM calls ' +
-        '     WHERE raids.gym_id = calls.raid_id) = 1'
-      : '   calls.time = ?'
-    ),
-    [msg.author.id, extras, false, call_time],
+    '     AND ' + where_call_time(call_time),
+    [msg.author.id, extras, false],
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
