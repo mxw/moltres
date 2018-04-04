@@ -207,7 +207,8 @@ const cmds = {
     args: [2, 3],
     desc: 'Call a time for a raid.',
     detail: [
-      'Make sure not to double-call a time, or Moltres will be mad at you.',
+      'Setting multiple call times is allowed (and encouraged!), but make',
+      'sure not to double-call the same time, or Moltres will be mad at you.',
     ],
   },
   'change-time': {
@@ -218,7 +219,8 @@ const cmds = {
     desc: 'Change a called time for a raid.',
     detail: [
       'Make sure to include the `to`; it\'s just there to enforce the right',
-      'direction.',
+      'direction.  Anyone can change a called time, not just the original',
+      'caller.',
     ],
   },
   'join': {
