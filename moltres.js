@@ -702,9 +702,16 @@ function check_one_gym(msg, handle, results) {
 }
 
 /*
+ * Canonical display of a gym's name when we have a whole table row.
+ */
+function gym_name(gym) {
+  return `\`[${gym.handle}]\` **${gym.name}**`;
+}
+
+/*
  * Stringify a row from the gyms table.
  */
-function gym_row_to_string(msg, gym) {
+function gym_row_to_string(gym) {
   return `\`[${gym.handle}]\`
 name: **${gym.name}**
 region: ${guild().roles.get(gym.region).name}
@@ -723,7 +730,7 @@ function handle_gym(msg, args) {
       if (!check_one_gym(msg, handle, results)) return;
       let [gym] = results;
 
-      send_quiet(msg.channel, gym_row_to_string(msg, gym));
+      send_quiet(msg.channel, gym_row_to_string(gym));
     })
   );
 }
@@ -846,7 +853,7 @@ function handle_raid(msg, args) {
 
     let hatch = hatch_from_despawn(raids.despawn);
 
-    let output = gym_row_to_string(msg, gyms) + '\n';
+    let output = gym_row_to_string(gyms) + '\n';
     if (now >= hatch) {
       output +=`
 raid: **${fmt_boss(raids.boss)}** (T${raids.tier})
@@ -1131,10 +1138,9 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
     get_all_raiders(msg, handle, call_time, function (msg, row, raiders) {
       // The call time might have changed, or everyone may have unjoined.
       if (row === null || raiders.length === 0) return;
-      let handle = row.gyms.handle;
 
       let output =
-        `Raid call for \`[${handle}]\` at \`${time_str(call_time)}\` ` +
+        `Raid call for ${gym_name(row.gyms)} at \`${time_str(call_time)}\` ` +
         `is in ${before} minutes!\n\n${raiders.map(m => m.user).join(' ')}`;
       send_quiet(msg.channel, output);
     });
@@ -1238,7 +1244,7 @@ function handle_call_time(msg, args) {
 
           let output =
             `${role_str} **T${raid.tier} ${fmt_boss(raid.boss)}** raid ` +
-            `at \`[${raid.handle}]\` ` +
+            `at ${gym_name(raid)} ` +
             `called for ${time_str(call_time)} by ${msg.author}\n\n` +
             `To join this raid time, enter \`$join ${raid.handle}\`.`;
           send_quiet(msg.channel, output);
