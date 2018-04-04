@@ -287,6 +287,8 @@ const raid_tiers = {
   latios: 5,
 };
 
+const gyaoo = 'Gyaoo!';
+
 ///////////////////////////////////////////////////////////////////////////////
 // Discord utilities.
 
@@ -1140,8 +1142,9 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
       if (row === null || raiders.length === 0) return;
 
       let output =
-        `Raid call for ${gym_name(row.gyms)} at \`${time_str(call_time)}\` ` +
-        `is in ${before} minutes!\n\n${raiders.map(m => m.user).join(' ')}`;
+        `${gyaoo}  Raid call for ${gym_name(row.gyms)} ` +
+        `at \`${time_str(call_time)}\` is in ${before} minutes!` +
+        `\n\n${raiders.map(m => m.user).join(' ')}`;
       send_quiet(msg.channel, output);
     });
   }, delay);
@@ -1245,8 +1248,8 @@ function handle_call_time(msg, args) {
           let output =
             `${role_str} **T${raid.tier} ${fmt_boss(raid.boss)}** raid ` +
             `at ${gym_name(raid)} ` +
-            `called for ${time_str(call_time)} by ${msg.author}\n\n` +
-            `To join this raid time, enter \`$join ${raid.handle}\`.`;
+            `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
+            `\n\nTo join this raid time, enter \`$join ${raid.handle}\`.`;
           send_quiet(msg.channel, output);
 
           set_raid_alarm(msg, raid.handle, call_time);
@@ -1313,7 +1316,7 @@ function handle_change_time(msg, args) {
         let output =
           `Raid time changed for \`${row.gyms.name}\` ` +
           `from ${time_str(current)} to ${time_str(desired)} ` +
-          `by ${msg.author}.  CA-CAAW!`;
+          `by ${msg.author}.  ${gyaoo}`;
 
         if (raiders.length !== 0) {
           output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
