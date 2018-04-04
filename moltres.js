@@ -1314,7 +1314,7 @@ function handle_change_time(msg, args) {
           .filter(user => user.id != msg.author.id);
 
         let output =
-          `Raid time changed for \`${row.gyms.name}\` ` +
+          `Raid time changed for \`${gym_name(row.gyms)}\` ` +
           `from ${time_str(current)} to ${time_str(desired)} ` +
           `by ${msg.author}.  ${gyaoo}`;
 
@@ -1377,14 +1377,15 @@ function handle_join(msg, args) {
       get_all_raiders(msg, handle, call_time, function (msg, row, raiders) {
         // The call time might have changed, or everyone may have unjoined.
         if (row === null || raiders.length === 0) return;
-        let handle = row.gyms.handle;
+        let {gyms, raids, calls} = row;
+        let handle = gyms.handle;
 
         // Clear any existing join message for this raid.
         let clear_join_msg = function() {
-          let prev = join_cache_get(handle, row.calls.time);
+          let prev = join_cache_get(handle, calls.time);
           if (prev) {
             try_delete(prev);
-            join_cache_set(handle, row.calls.time, null);
+            join_cache_set(handle, calls.time, null);
           }
         };
         clear_join_msg();
@@ -1392,8 +1393,9 @@ function handle_join(msg, args) {
         raiders = raiders.filter(user => user.id != msg.author.id);
 
         let output = get_emoji('valor') +
-          `  ${msg.author} is joining at ${time_str(row.calls.time)} ` +
-          `for the raid at \`[${handle}]\``;
+          `  ${msg.author} is joining at ${time_str(calls.time)} ` +
+          `for the **T${raids.tier} ${fmt_boss(raids.boss)}** raid ` +
+          `at ${gym_name(gyms)}`;
 
         if (raiders.length !== 0) {
           let names = raiders.map(memb => memb.nickname || memb.user.username);
@@ -1410,7 +1412,7 @@ function handle_join(msg, args) {
             // cache this one for potential later deletion.
             try_delete(msg, 3000);
             clear_join_msg();
-            join_cache_set(handle, row.calls.time, join_msg);
+            join_cache_set(handle, calls.time, join_msg);
           })
           .catch(console.error);
       });
