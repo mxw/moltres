@@ -858,7 +858,7 @@ hatch: ${time_str(hatch)}`;
     }
 
     if (calls.time !== null) {
-      output += '\n\ncall times:';
+      output += '\n\ncall time(s):';
 
       let times = [];
       let rows_by_time = {};
@@ -926,31 +926,49 @@ function handle_ls_raids(msg, args) {
 
   let now = get_now();
 
-  conn.query(
-    'SELECT * FROM gyms INNER JOIN raids ' +
-    'ON gyms.id = raids.gym_id ' +
-    'WHERE gyms.region = ? AND raids.despawn > ?',
-    [role.id, now],
+  conn.query({
+    sql:
+      'SELECT * FROM gyms ' +
+      '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
+      '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
+      'WHERE gyms.region = ? AND raids.despawn > ?',
+    values: [role.id, now],
+    nestTables: true,
+  }, errwrap(msg, function (msg, results) {
+    if (results.length === 0) {
+      return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
+    }
 
-    errwrap(msg, function (msg, results) {
-      if (results.length === 0) {
-        return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
+    let rows_by_raid = {};
+    for (let row of results) {
+      let handle = row.gyms.handle;
+      rows_by_raid[handle] = rows_by_raid[handle] || [];
+      rows_by_raid[handle].push(row);
+    }
+
+    let output = `Active raids in **${role.name}**:\n`;
+
+    for (let handle in rows_by_raid) {
+      let [{gyms, raids, calls}] = rows_by_raid[handle];
+
+      let hatch = hatch_from_despawn(raids.despawn);
+      let boss = hatch > now ? 'egg' : fmt_boss(raids.boss);
+      let timer_str = hatch > now
+        ? `hatches at ${time_str(hatch)}`
+        : `despawns at ${time_str(raids.despawn)}`
+
+      output +=
+        `\n\`[${handle}]\` **T${raids.tier} ${boss}** ${timer_str}`;
+
+      if (calls.time !== null) {
+        let times = rows_by_raid[handle]
+          .map(row => time_str(row.calls.time))
+          .join(', ');
+        output += `\n\tcalled time(s): ${times}`;
       }
-
-      let output = `Active raids in **${role.name}**:\n`;
-      for (let raid of results) {
-        let hatch = hatch_from_despawn(raid.despawn);
-        let boss = hatch > now ? 'egg' : fmt_boss(raid.boss);
-        let timer_str = hatch > now
-          ? `hatches at ${time_str(hatch)}`
-          : `despawns at ${time_str(raid.despawn)}`
-
-        output +=
-          `\n\`[${raid.handle}]\` **T${raid.tier} ${boss}** ${timer_str}`;
-      }
-      send_quiet(msg.channel, output);
-    })
-  );
+    }
+    send_quiet(msg.channel, output);
+  }));
 }
 
 function handle_report(msg, handle, tier_in, boss, timer_in) {
@@ -1217,7 +1235,6 @@ function handle_call_time(msg, args) {
           }
 
           let role_str = raid.silent ? role.name : role.toString();
-          role_str = role.name;
 
           let output =
             `${role_str} **T${raid.tier} ${fmt_boss(raid.boss)}** raid ` +
