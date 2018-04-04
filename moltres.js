@@ -389,7 +389,7 @@ function total_mentions(msg) {
 function log_impl(msg, str, reacc = null) {
   if (str) {
     let log = moltres.channels.get(config.log_id);
-    send_quiet(log, `    ${str}`);
+    send_quiet(log, `\t${str}`);
   }
   if (reacc) chain_reaccs(msg, reacc);
 };
