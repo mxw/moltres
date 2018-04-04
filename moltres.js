@@ -1399,6 +1399,8 @@ function handle_join(msg, args) {
           output += '.';
         }
 
+        output += `\n\nTo join this raid time, enter \`$join ${handle}\`.`;
+
         msg.channel.send(output)
           .then(join_msg => {
             // Delete the $join request, delete any previous join message, and
