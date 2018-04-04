@@ -64,7 +64,7 @@ const cmd_order = [
   'help', 'set-perm', 'test', null,
   'gym', 'ls-gyms', 'add-gym', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', null,
-  'call-time', 'change-time', 'join', // 'unjoin',
+  'call-time', 'change-time', 'join', 'unjoin',
 ];
 
 const cmds = {
@@ -232,14 +232,17 @@ const cmds = {
       'called times, in which case you do.',
     ],
   },
-  /*
   'unjoin': {
     perms: Permission.NONE,
-    usage: '<gym-handle> [HH:MM] [num-extras]',
-    args: [1, 3],
+    dm: false,
+    usage: '<gym-handle> [HH:MM]',
+    args: [1, 2],
     desc: 'Back out of a raid.',
+    detail: [
+      'As with `$join`, you don\'t need to specify the time _unless_ the',
+      'raid has multiple called times, in which case you do.',
+    ],
   },
-  */
 };
 
 const cmd_aliases = {
@@ -500,6 +503,15 @@ function where_call_time(call_time = null) {
 }
 
 /*
+ * Join table for all raid metadata.
+ */
+const full_join_table =
+  ' gyms ' +
+  '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
+  '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
+  '   LEFT JOIN rsvps ON calls.id = rsvps.call_id ';
+
+/*
  * Select all rows from the full left-join raid-rsvps table for a unique gym
  * `handle' and satisfying `xtra_where'.
  *
@@ -508,10 +520,7 @@ function where_call_time(call_time = null) {
 function select_rsvps(xtra_where, xtra_values, handle, fn) {
   conn.query({
     sql:
-      'SELECT * FROM gyms ' +
-      '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
-      '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
-      '   LEFT JOIN rsvps ON calls.id = rsvps.call_id ' +
+      'SELECT * FROM ' + full_join_table +
       '   WHERE ' + where_one_gym(handle) + xtra_where,
     values: xtra_values,
     nestTables: true,
@@ -1208,6 +1217,7 @@ function handle_call_time(msg, args) {
           }
 
           let role_str = raid.silent ? role.name : role.toString();
+          role_str = role.name;
 
           let output =
             `${role_str} **T${raid.tier} ${fmt_boss(raid.boss)}** raid ` +
@@ -1381,6 +1391,32 @@ function handle_join(msg, args) {
 }
 
 function handle_unjoin(msg, args) {
+  let [handle, time] = args;
+  handle = handle.toLowerCase();
+
+  let call_time = null;
+  if (time) {
+    call_time = parse_hour_minute(time);
+    if (call_time === null) {
+      return log_invalid(msg, `Unrecognized HH:MM time \`${time}\`.`);
+    }
+  }
+
+  conn.query(
+    'DELETE rsvps FROM ' + full_join_table +
+    '   WHERE ' + where_one_gym(handle) +
+    '     AND ' + where_call_time(call_time) +
+    '     AND rsvps.user_id = ? ',
+    [msg.author.id],
+
+    mutation_handler(msg, function (msg, result) {
+      log_invalid(msg,
+        `Couldn't find a unique raid for \`[${handle}]\` that you joined.`
+      );
+    }, function (msg, result) {
+      react_success(msg, 'cry');
+    })
+  );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
