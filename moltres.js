@@ -1064,7 +1064,7 @@ function handle_update(msg, args) {
  * Get an array of all the users attending the raid at `handle' at `time'.
  */
 function get_all_raiders(msg, handle, time, fn) {
-  select_rsvps('AND calls.time = ?', [time], handle,
+  select_rsvps('AND ' + where_call_time(time), [], handle,
     errwrap(msg, function (msg, results) {
       if (results.length < 1) return fn(msg, null, []);
 
@@ -1072,7 +1072,7 @@ function get_all_raiders(msg, handle, time, fn) {
 
       for (let row of results) {
         let member = guild().members.get(row.rsvps.user_id);
-        if (member) raiders.push(member.user);
+        if (member) raiders.push(member);
       }
       fn(msg, results[0], raiders);
     })
@@ -1102,10 +1102,35 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
 
       let output =
         `Raid call for \`[${handle}]\` at \`${time_str(call_time)}\` ` +
-        `is in ${before} minutes!\n\n${raiders.join(' ')}`;
+        `is in ${before} minutes!\n\n${raiders.map(m => m.user).join(' ')}`;
       send_quiet(msg.channel, output);
     });
   }, delay);
+
+  delay = call_time - get_now();
+  if (delay <= 0) delay = 1;
+
+  // Make sure we don't leak cached join messages.
+  //
+  // This doesn't really belong here, but we set alarms every time we modify a
+  // call time, which is exactly when we want to make this guarantee.
+  setTimeout(() => { join_cache_set(handle, call_time, null); }, delay);
+}
+
+/*
+ * Cache for join messages.
+ */
+let join_cache = {};
+
+function join_cache_get(handle, time) {
+  return join_cache[handle + time.getTime()];
+}
+function join_cache_set(handle, time, msg) {
+  if (msg) {
+    join_cache[handle + time.getTime()] = msg;
+  } else {
+    delete join_cache[handle + time.getTime()];
+  }
 }
 
 function handle_call_time(msg, args) {
@@ -1185,7 +1210,7 @@ function handle_call_time(msg, args) {
             `To join this raid time, enter \`$join ${raid.handle}\`.`;
           send_quiet(msg.channel, output);
 
-          set_raid_alarm(msg, handle, call_time);
+          set_raid_alarm(msg, raid.handle, call_time);
         })
       );
     })
@@ -1236,8 +1261,15 @@ function handle_change_time(msg, args) {
         // No raiders is weird, but it could happen if everyone unjoins and
         // someone decides to change the raid time for no meaningful reason.
         if (row === null || raiders.length === 0) return;
+        let handle = row.gyms.handle;
 
-        raiders = raiders.filter(user => user.id != msg.author.id);
+        // Move the join message cache entry.
+        join_cache_set(handle, desired, join_cache_get(handle, current));
+        join_cache_set(handle, current, null);
+
+        raiders = raiders
+          .map(member => member.user)
+          .filter(user => user.id != msg.author.id);
 
         let output =
           `Raid time changed for \`${row.gyms.name}\` ` +
@@ -1299,6 +1331,45 @@ function handle_join(msg, args) {
           ? ` with called time \`${time_str(call_time)}\`.`
           : '.')
       );
+    }, function (msg, result) {
+      get_all_raiders(msg, handle, call_time, function (msg, row, raiders) {
+        // The call time might have changed, or everyone may have unjoined.
+        if (row === null || raiders.length === 0) return;
+        let handle = row.gyms.handle;
+
+        // Clear any existing join message for this raid.
+        let clear_join_msg = function() {
+          let prev = join_cache_get(handle, row.calls.time);
+          if (prev) {
+            try_delete(prev);
+            join_cache_set(handle, row.calls.time, null);
+          }
+        };
+        clear_join_msg();
+
+        raiders = raiders.filter(user => user.id != msg.author.id);
+
+        let output = get_emoji('valor') +
+          `  ${msg.author} is joining at ${time_str(row.calls.time)} ` +
+          `for the raid at \`[${handle}]\``;
+
+        if (raiders.length !== 0) {
+          let names = raiders.map(memb => memb.nickname || memb.user.username);
+          output += ` (with ${names.join(', ')}).`;
+        } else {
+          output += '.';
+        }
+
+        msg.channel.send(output)
+          .then(join_msg => {
+            // Delete the $join request, delete any previous join message, and
+            // cache this one for potential later deletion.
+            try_delete(msg, 3000);
+            clear_join_msg();
+            join_cache_set(handle, row.calls.time, join_msg);
+          })
+          .catch(console.error);
+      });
     })
   );
 }
