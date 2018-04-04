@@ -472,11 +472,19 @@ function mutation_handler(msg, failure = null, success = null) {
   })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// SQL snippets.
+
 /*
- * SQL snippet of the common "only one gym match" WHERE expression.
+ * Get a SQL WHERE clause fragment for selecting a unique gym matching `handle'.
  */
-const where_one_gym =
-  ' (SELECT COUNT(*) FROM gyms WHERE gyms.handle LIKE ?) = 1 ';
+function where_one_gym(handle) {
+  return mysql.format(
+    ' gyms.handle LIKE ? AND ' +
+    ' (SELECT COUNT(*) FROM gyms WHERE gyms.handle LIKE ?) = 1 ',
+    [`%${handle}%`, `%${handle}%`]
+  );
+}
 
 /*
  * Select all rows from the full left-join raid-rsvps table for a unique gym
@@ -491,8 +499,8 @@ function select_rsvps(xtra_where, xtra_values, handle, fn) {
       '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
       '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
       '   LEFT JOIN rsvps ON calls.id = rsvps.call_id ' +
-      '   WHERE gyms.handle LIKE ? AND ' + where_one_gym + xtra_where,
-    values: [`%${handle}%`, `%${handle}%`].concat(xtra_values),
+      '   WHERE ' + where_one_gym(handle) + xtra_where,
+    values: xtra_values,
     nestTables: true,
   }, fn);
 }
@@ -941,16 +949,14 @@ function handle_report(msg, handle, tier_in, boss, timer_in) {
   conn.query(
     'REPLACE INTO raids (gym_id, tier, boss, despawn, spotter) ' +
     '   SELECT gyms.id, ?, ?, ?, ? FROM gyms ' +
-    '   WHERE ' +
-    '     gyms.handle LIKE ? ' +
+    '   WHERE ' + where_one_gym(handle) +
     '   AND ' +
     '     NOT EXISTS ( ' +
     '       SELECT * FROM raids ' +
     '         WHERE gym_id = gyms.id ' +
     '         AND despawn > ? ' +
-    '     ) ' +
-    '   AND ' + where_one_gym,
-    [tier, boss, despawn, msg.author.id, `%${handle}%`, pop, `%${handle}%`],
+    '     ) ',
+    [tier, boss, despawn, msg.author.id, pop],
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
@@ -1027,8 +1033,8 @@ function handle_update(msg, args) {
 
   conn.query(
     'UPDATE raids INNER JOIN gyms ON raids.gym_id = gyms.id ' +
-    'SET ? WHERE gyms.handle LIKE ? AND ' + where_one_gym,
-    [assignment, `%${handle}%`, `%${handle}%`],
+    'SET ? WHERE ' + where_one_gym(handle),
+    [assignment],
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
@@ -1119,10 +1125,10 @@ function handle_call_time(msg, args) {
     'INSERT INTO calls (raid_id, caller, time) ' +
     '   SELECT raids.gym_id, ?, ? FROM gyms INNER JOIN raids ' +
     '     ON gyms.id = raids.gym_id ' +
-    '   WHERE gyms.handle LIKE ? AND ' + where_one_gym +
+    '   WHERE ' + where_one_gym(handle) +
     '     AND raids.despawn > ? ' +
     '     AND raids.despawn <= ? ',
-    [msg.author.id, call_time, `%${handle}%`, `%${handle}%`, call_time, later],
+    [msg.author.id, call_time, call_time, later],
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
@@ -1201,11 +1207,11 @@ function handle_change_time(msg, args) {
     '   INNER JOIN raids ON calls.raid_id = raids.gym_id ' +
     '   INNER JOIN gyms ON raids.gym_id = gyms.id ' +
     'SET ? ' +
-    'WHERE gyms.handle LIKE ? AND ' + where_one_gym +
+    'WHERE ' + where_one_gym(handle) +
     '   AND raids.despawn > ? ' +
     '   AND raids.despawn <= ? ' +
     '   AND calls.time = ? ',
-    [assignment, `%${handle}%`, `%${handle}%`, desired, later, current],
+    [assignment, desired, later, current],
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
@@ -1269,14 +1275,13 @@ function handle_join(msg, args) {
     '     FROM gyms ' +
     '       INNER JOIN raids ON gyms.id = raids.gym_id ' +
     '       INNER JOIN calls ON raids.gym_id = calls.raid_id ' +
-    '   WHERE gyms.handle LIKE ? ' +
-    '     AND ' + where_one_gym +
+    '   WHERE ' + where_one_gym(handle) +
     '     AND ' + (call_time === null
       ? '   (SELECT COUNT(*) FROM calls ' +
         '     WHERE raids.gym_id = calls.raid_id) = 1'
       : '   calls.time = ?'
     ),
-    [msg.author.id, extras, false, `%${handle}%`, `%${handle}%`, call_time],
+    [msg.author.id, extras, false, call_time],
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
