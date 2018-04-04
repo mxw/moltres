@@ -612,6 +612,11 @@ function handle_help(msg, args) {
     ].join(' ');
   } else {
     let [cmd] = args;
+    cmd = cmd_aliases[cmd] || cmd;
+
+    if (!(cmd in cmds)) {
+      return log_invalid(msg, `Invalid request \`${cmd}\`.`);
+    }
     out = `\`${cmd}\`:  ${cmds[cmd].desc}\n${usage_string(cmd)}`;
   }
 
