@@ -237,7 +237,7 @@ const cmds = {
     dm: false,
     usage: '<gym-handle> [HH:MM]',
     args: [1, 2],
-    desc: 'Back out of a raid.',
+    desc: 'Back out of a scheduled raid.',
     detail: [
       'As with `$join`, you don\'t need to specify the time _unless_ the',
       'raid has multiple called times, in which case you do.',
