@@ -124,7 +124,7 @@ const cmds = {
       'The region name should be any valid region role (without the `@`).',
       'Case doesn\'t matter, and uniquely-identifying prefixes are allowed,',
       'so, e.g., `harvard` will work, but `boston` will not (but `boston',
-      'common` is fine).',
+      'common` is fine).\n\n**Aliases**: `$gyms`',
     ],
   },
   'add-gym': {
@@ -163,7 +163,7 @@ const cmds = {
       'The region name should be any valid region role (without the `@`).',
       'Case doesn\'t matter, and uniquely-identifying prefixes are allowed,',
       'so, e.g., `harvard` will work, but `boston` will not (but `boston',
-      'common` is fine).',
+      'common` is fine).\n\n**Aliases**: `$raids`',
     ],
   },
   'egg': {
@@ -246,11 +246,8 @@ const cmds = {
 };
 
 const cmd_aliases = {
-  'gyms':         'ls-gyms',
-  'raids':        'ls-raids',
-  'spot-egg':     'egg',
-  'spot-raid':    'boss',
-  'update-raid':  'update',
+  'gyms':  'ls-gyms',
+  'raids': 'ls-raids',
 };
 
 const raid_tiers = {
@@ -419,7 +416,7 @@ function log_invalid(msg, str, keep = false) {
  */
 function usage_string(cmd) {
   if (!(cmd in cmds)) return null;
-  return `Usage: \`\$${cmd} ${cmds[cmd].usage}\`
+  return `**Usage**: \`\$${cmd} ${cmds[cmd].usage}\`
 
 ${cmds[cmd].detail.join(' ')}
 
