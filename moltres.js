@@ -394,7 +394,7 @@ function log_impl(msg, str, reacc = null) {
  * Log a successful request, an invalid request, or an internal error.
  */
 function react_success(msg, reacc = null) {
-  log_impl(msg, null, reacc || 'approved');
+  chain_reaccs(msg, reacc || 'approved');
 };
 function log_error(msg, str, reacc = null) {
   log_impl(msg, str, reacc || 'no_good');
