@@ -638,7 +638,7 @@ function handle_help(msg, args) {
     if (!(cmd in cmds)) {
       return log_invalid(msg, `Invalid request \`${cmd}\`.`);
     }
-    out = `\`${cmd}\`:  ${cmds[cmd].desc}\n${usage_string(cmd)}`;
+    out = `\`${cmd}\`:  ${cmds[cmd].desc}\n\n${usage_string(cmd)}`;
   }
 
   if (config.admin_ids.has(msg.author.id)) {
