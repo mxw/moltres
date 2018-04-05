@@ -1029,6 +1029,7 @@ function handle_report(msg, handle, tier_in, boss, timer_in) {
       output += `(reported by ${msg.author}).`;
 
       send_quiet(msg.channel, output);
+      try_delete(msg, 10000);
     })
   );
 }
