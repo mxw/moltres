@@ -1300,7 +1300,8 @@ function handle_call_time(msg, args) {
             `${role_str} **${fmt_tier_boss(raid)}** raid ` +
             `at ${gym_name(raid)} ` +
             `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
-            `\n\nTo join this raid time, enter \`$join ${raid.handle}\`.`;
+            `\n\nTo join this raid time, enter ` +
+            `\`$join ${raid.handle} ${time_str(time)}\`.`;
           send_quiet(msg.channel, output);
 
           set_raid_alarm(msg, raid.handle, call_time);
