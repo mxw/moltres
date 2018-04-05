@@ -79,6 +79,8 @@ const cmds = {
       '`$help req` or `$req help` to get more information about a specific',
       'request.',
     ],
+    examples: [
+    ],
   },
   'set-perm': {
     perms: Permission.TABLE,
@@ -89,6 +91,8 @@ const cmds = {
     detail: [
       'The user should be identified by tag.',
     ],
+    examples: [
+    ],
   },
   'test': {
     perms: Permission.ADMIN,
@@ -98,6 +102,8 @@ const cmds = {
     desc: 'Flavor of the week testing command.',
     detail: [
       'This request is only available to me.',
+    ],
+    examples: [
     ],
   },
   'gym': {
@@ -113,6 +119,8 @@ const cmds = {
       'if you want to see all the gym handles (but they should be what you',
       'expect).',
     ],
+    examples: [
+    ],
   },
   'ls-gyms': {
     perms: Permission.NONE,
@@ -125,6 +133,8 @@ const cmds = {
       'Case doesn\'t matter, and uniquely-identifying prefixes are allowed,',
       'so, e.g., `harvard` will work, but `boston` will not (but `boston',
       'common` is fine).\n\n**Aliases**: `$gyms`',
+    ],
+    examples: [
     ],
   },
   'add-gym': {
@@ -142,6 +152,8 @@ const cmds = {
       'over from <http://www.massmwcreaturemap.com/>. Note that the latitude',
       'argument is allowed to contain a trailing comma, for ease of copying.',
     ],
+    examples: [
+    ],
   },
   'raid': {
     perms: Permission.NONE,
@@ -151,6 +163,8 @@ const cmds = {
     desc: 'Get information about the current raid at a gym.',
     detail: [
       'See `$help gym` for details on gym handles.',
+    ],
+    examples: [
     ],
   },
   'ls-raids': {
@@ -165,6 +179,8 @@ const cmds = {
       'so, e.g., `harvard` will work, but `boston` will not (but `boston',
       'common` is fine).\n\n**Aliases**: `$raids`',
     ],
+    examples: [
+    ],
   },
   'egg': {
     perms: Permission.NONE,
@@ -177,6 +193,8 @@ const cmds = {
       'should be the current _**countdown timer**_, not a time of day. See',
       '`$help gym` for details on gym handles.',
     ],
+    examples: [
+    ],
   },
   'boss': {
     perms: Permission.NONE,
@@ -187,6 +205,8 @@ const cmds = {
     detail: [
       'The time should be the current _**countdown timer**_, not a time of',
       'day. See `$help gym` for details on gym handles.',
+    ],
+    examples: [
     ],
   },
   'update': {
@@ -199,6 +219,8 @@ const cmds = {
       'Note that unlike `$egg` and `$boss`, times are interpreted as',
       '_despawn times_, not countdown timers.',
     ],
+    examples: [
+    ],
   },
   'call-time': {
     perms: Permission.NONE,
@@ -209,6 +231,8 @@ const cmds = {
     detail: [
       'Setting multiple call times is allowed (and encouraged!), but make',
       'sure not to double-call the same time, or Moltres will be mad at you.',
+    ],
+    examples: [
     ],
   },
   'change-time': {
@@ -222,6 +246,8 @@ const cmds = {
       'direction.  Anyone can change a called time, not just the original',
       'caller.',
     ],
+    examples: [
+    ],
   },
   'join': {
     perms: Permission.NONE,
@@ -233,6 +259,8 @@ const cmds = {
       'You don\'t need to specify the time _unless_ the raid has multiple',
       'called times, in which case you do.',
     ],
+    examples: [
+    ],
   },
   'unjoin': {
     perms: Permission.NONE,
@@ -243,6 +271,8 @@ const cmds = {
     detail: [
       'As with `$join`, you don\'t need to specify the time _unless_ the',
       'raid has multiple called times, in which case you do.',
+    ],
+    examples: [
     ],
   },
 };
