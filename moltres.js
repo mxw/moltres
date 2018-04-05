@@ -1420,10 +1420,10 @@ function handle_join(msg, args) {
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
-        `Could not find a raid time to join for \`[${handle}]\`` +
+        `Could not find a single raid time to join for \`[${handle}]\`` +
         (call_time !== null
           ? ` with called time \`${time_str(call_time)}\`.`
-          : '.')
+          : '.  Either none or multiple have been called.')
       );
     }, function (msg, result) {
       get_all_raiders(msg, handle, call_time, function (msg, row, raiders) {
