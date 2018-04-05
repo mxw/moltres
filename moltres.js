@@ -286,6 +286,16 @@ const raid_tiers = {
   latios: 5,
 };
 
+const bosses_for_tier = function() {
+  let ret = [];
+  for (let boss in raid_tiers) {
+    let tier = raid_tiers[boss];
+    ret[tier] = ret[tier] || [];
+    ret[tier].push(boss);
+  }
+  return ret;
+}();
+
 const gyaoo = 'Gyaoo!';
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -818,13 +828,22 @@ function parse_tier(tier) {
 }
 
 /*
- * Capitalize the first letter of a raid boss's name, or return 'unknown' if
- * the boss is null.
+ * Canonical string for displaying a raid boss from a raids table row.
  */
-function fmt_boss(boss) {
-  return boss !== null
-    ? boss.charAt(0).toUpperCase() + boss.substr(1)
-    : 'unknown';
+function fmt_tier_boss(raid) {
+  let tier = raid.tier;
+
+  let capitalize = function(str) {
+    return str.charAt(0).toUpperCase() + str.substr(1);
+  }
+  let boss = raid.boss !== null
+    ? capitalize(raid.boss)
+    : (tier < bosses_for_tier.length &&
+       bosses_for_tier[tier].length === 1)
+        ? capitalize(bosses_for_tier[tier][0])
+        : 'unknown';
+
+  return `T${tier} ${boss}`;
 }
 
 function handle_raid(msg, args) {
@@ -857,7 +876,7 @@ function handle_raid(msg, args) {
     let output = gym_row_to_string(gyms) + '\n';
     if (now >= hatch) {
       output +=`
-raid: **${fmt_boss(raids.boss)}** (T${raids.tier})
+raid: **${fmt_tier_boss(raids)}**
 despawn: ${time_str(raids.despawn)}`;
     } else {
       output +=`
@@ -960,13 +979,12 @@ function handle_ls_raids(msg, args) {
       let [{gyms, raids, calls}] = rows_by_raid[handle];
 
       let hatch = hatch_from_despawn(raids.despawn);
-      let boss = hatch > now ? 'egg' : fmt_boss(raids.boss);
+      let boss = hatch > now ? `T${raids.tier} egg` : fmt_tier_boss(raids);
       let timer_str = hatch > now
         ? `hatches at ${time_str(hatch)}`
         : `despawns at ${time_str(raids.despawn)}`
 
-      output +=
-        `\n\`[${handle}]\` **T${raids.tier} ${boss}** ${timer_str}`;
+      output += `\n\`[${handle}]\` **${boss}** ${timer_str}`;
 
       if (calls.time !== null) {
         let times = rows_by_raid[handle]
@@ -1018,13 +1036,16 @@ function handle_report(msg, handle, tier_in, boss, timer_in) {
         'already have an active raid.'
       );
     }, function (msg, result) {
-      let output = `**T${tier} `;
+      let output = null;
+
       if (boss === null) {
         let hatch = hatch_from_despawn(despawn);
-        output += `egg** hatches at \`[${handle}]\` at ${time_str(hatch)} `;
+        output = `**T${tier} egg** ` +
+                 `hatches at \`[${handle}]\` at ${time_str(hatch)} `;
       } else {
-        output += `${fmt_boss(boss)} raid** despawns at \`[${handle}]\` ` +
-                  `at ${time_str(despawn)} `;
+        let raid = {tier: tier, boss: boss};
+        output = `**${fmt_tier_boss(raid)} raid** ` +
+                 `despawns at \`[${handle}]\` at ${time_str(despawn)} `;
       }
       output += `(reported by ${msg.author}).`;
 
@@ -1246,7 +1267,7 @@ function handle_call_time(msg, args) {
           let role_str = raid.silent ? role.name : role.toString();
 
           let output =
-            `${role_str} **T${raid.tier} ${fmt_boss(raid.boss)}** raid ` +
+            `${role_str} **${fmt_tier_boss(raid)}** raid ` +
             `at ${gym_name(raid)} ` +
             `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
             `\n\nTo join this raid time, enter \`$join ${raid.handle}\`.`;
@@ -1394,8 +1415,7 @@ function handle_join(msg, args) {
 
         let output = get_emoji('valor') +
           `  ${msg.author} is joining at ${time_str(calls.time)} ` +
-          `for the **T${raids.tier} ${fmt_boss(raids.boss)}** raid ` +
-          `at ${gym_name(gyms)}`;
+          `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
 
         if (raiders.length !== 0) {
           let names = raiders.map(memb => memb.nickname || memb.user.username);
