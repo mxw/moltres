@@ -1366,7 +1366,7 @@ function handle_change_time(msg, args) {
           .filter(user => user.id != msg.author.id);
 
         let output =
-          `Raid time changed for \`${gym_name(row.gyms)}\` ` +
+          `Raid time changed for ${gym_name(row.gyms)} ` +
           `from ${time_str(current)} to ${time_str(desired)} ` +
           `by ${msg.author}.  ${gyaoo}`;
 
