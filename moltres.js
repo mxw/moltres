@@ -212,7 +212,7 @@ const cmds = {
   'update': {
     perms: Permission.NONE,
     dm: false,
-    usage: '<gym-handle> <tier-or-boss-or-despawn-time>',
+    usage: '<gym-handle> <tier-or-boss-or-despawn-time-or-team>',
     args: [2, 2],
     desc: 'Modify an active raid listing.',
     detail: [
@@ -327,6 +327,13 @@ const bosses_for_tier = function() {
 }();
 
 const gyaoo = 'Gyaoo!';
+
+///////////////////////////////////////////////////////////////////////////////
+// Misc utilities.
+
+function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.substr(1);
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Discord utilities.
@@ -863,9 +870,6 @@ function parse_tier(tier) {
 function fmt_tier_boss(raid) {
   let tier = raid.tier;
 
-  let capitalize = function(str) {
-    return str.charAt(0).toUpperCase() + str.substr(1);
-  }
   let boss = raid.boss !== null
     ? capitalize(raid.boss)
     : (tier < bosses_for_tier.length &&
@@ -912,6 +916,14 @@ despawn: ${time_str(raids.despawn)}`;
       output +=`
 raid egg: **T${raids.tier}**
 hatch: ${time_str(hatch)}`;
+    }
+
+    if (raids.team) {
+      let team = raids.team;
+      if (team === 'mystic') team = 'mystake';
+      else if (team === 'instinct') team = 'instinkt';
+
+      output += `\nlast known team: ${get_emoji(team)}`;
     }
 
     if (calls.time !== null) {
@@ -1105,9 +1117,10 @@ function handle_boss(msg, args) {
 function handle_update(msg, args) {
   let [handle, data] = args;
   handle = handle.toLowerCase();
+  let data_lower = data.toLowerCase();
 
   let assignment = function() {
-    let boss = data.toLowerCase();
+    let boss = data_lower;
     if (boss in raid_tiers) {
       return {
         tier: raid_tiers[boss],
@@ -1128,6 +1141,12 @@ function handle_update(msg, args) {
     let tier = parse_tier(data);
     if (tier !== null) {
       return { tier: tier };
+    }
+
+    if (data_lower === 'valor' ||
+        data_lower === 'mystic' ||
+        data_lower === 'instinct') {
+      return { team: data_lower };
     }
 
     return null;
