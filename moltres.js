@@ -39,15 +39,20 @@ function cleanup() {
 
 function signal_handler(signal) {
   cleanup();
+  console.error(`Got signal ${signal}.`);
   process.exit(128 + signal);
 }
 
 process.on('exit', cleanup);
-process.on('uncaughtException', cleanup);
 process.on('SIGINT', signal_handler);
 process.on('SIGHUP', signal_handler);
 process.on('SIGTERM', signal_handler);
 process.on('SIGABRT', signal_handler);
+process.on('uncaughtException', (err) => {
+  cleanup();
+  console.error(`Caught exception: ${err}`);
+  process.exit(1);
+});
 
 ///////////////////////////////////////////////////////////////////////////////
 
