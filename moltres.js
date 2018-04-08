@@ -67,7 +67,7 @@ const Permission = {
  */
 const cmd_order = [
   'help', 'set-perm', 'test', null,
-  'gym', 'ls-gyms', 'add-gym', null,
+  'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', null,
   'call-time', 'change-time', 'join', 'unjoin',
 ];
@@ -111,6 +111,7 @@ const cmds = {
     examples: [
     ],
   },
+
   'gym': {
     perms: Permission.NONE,
     dm: true,
@@ -173,6 +174,20 @@ const cmds = {
     examples: [
     ],
   },
+  'ls-regions': {
+    perms: Permission.NONE,
+    dm: true,
+    usage: '',
+    args: [0, 0],
+    desc: 'List all regions with registered gyms.',
+    detail: [
+      'Listed regions correspond to taggable server regional roles.\n\n' +
+      '**Aliases**: `$regions`',
+    ],
+    examples: [
+    ],
+  },
+
   'raid': {
     perms: Permission.NONE,
     dm: true,
@@ -240,6 +255,7 @@ const cmds = {
     examples: [
     ],
   },
+
   'call-time': {
     perms: Permission.NONE,
     dm: false,
@@ -296,8 +312,9 @@ const cmds = {
 };
 
 const cmd_aliases = {
-  'gyms':  'ls-gyms',
-  'raids': 'ls-raids',
+  'gyms':    'ls-gyms',
+  'raids':   'ls-raids',
+  'regions': 'ls-regions',
 };
 
 const raid_tiers = {
@@ -888,6 +905,25 @@ function handle_add_gym(msg, args) {
       lat: lat,
       lng: lng, },
     mutation_handler(msg)
+  );
+}
+
+function handle_ls_regions(msg, args) {
+  conn.query(
+    'SELECT region FROM gyms GROUP BY region',
+    errwrap(msg, function (msg, results) {
+      if (results.length === 0) {
+        return send_quiet(msg.channel, 'No gyms have been registered.');
+      }
+
+      let output = 'List of **regions** with **registered gyms**:\n';
+      for (let gym of results) {
+        let role = guild().roles.get(gym.region);
+        if (!role) continue;
+        output += `\n${role.name}`;
+      }
+      send_quiet(msg.channel, output);
+    })
   );
 }
 
@@ -1588,6 +1624,7 @@ function handle_request(msg, request, args) {
     case 'ls-gyms':   return handle_ls_gyms(msg, args);
     case 'search-gym':  return handle_search_gym(msg, args);
     case 'add-gym':   return handle_add_gym(msg, args);
+    case 'ls-regions':  return handle_ls_regions(msg, args);
 
     case 'raid':      return handle_raid(msg, args);
     case 'ls-raids':  return handle_ls_raids(msg, args);
