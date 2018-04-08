@@ -1677,7 +1677,7 @@ function handle_request_with_check(msg, request, args) {
       }
 
       return log_invalid(msg,
-        `User ${msg.author.tag} does not have permissions for ${request}` +
+        `User ${msg.author.tag} does not have permissions for ${request} ` +
         get_emoji('dealwithit') + '.'
       );
     })
