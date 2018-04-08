@@ -315,6 +315,7 @@ const cmd_aliases = {
   'gyms':    'ls-gyms',
   'raids':   'ls-raids',
   'regions': 'ls-regions',
+  'search-gyms': 'search-gym',
 };
 
 const raid_tiers = {
