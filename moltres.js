@@ -142,6 +142,19 @@ const cmds = {
     examples: [
     ],
   },
+  'search-gym': {
+    perms: Permission.NONE,
+    dm: true,
+    usage: '<partial-handle-or-name>',
+    args: [1, 100],
+    desc: 'Search for gyms matching a name fragment.',
+    detail: [
+      'This will find all gyms with handles _and_ in-game names matching the',
+      'search term.',
+    ],
+    examples: [
+    ],
+  },
   'add-gym': {
     perms: Permission.TABLE,
     dm: false,
@@ -806,6 +819,32 @@ function handle_ls_gyms(msg, args) {
       let output = `Gyms in **${role.name}**:\n`;
       for (let gym of results) {
         output += `\n\`[${gym.handle}]\` ${gym.name}`;
+      }
+      send_quiet(msg.channel, output);
+    })
+  );
+}
+
+function handle_search_gym(msg, args) {
+  let name = args.join(' ');
+  let handle = name.replace(/ /g, '-');
+
+  conn.query(
+    'SELECT * FROM gyms WHERE handle LIKE ? OR name LIKE ?',
+    [`%${handle}%`, `%${name}%`],
+
+    errwrap(msg, function (msg, results) {
+      if (results.length === 0) {
+        return send_quiet(msg.channel,
+          `No gyms with handle or name matching ${name}.`
+        );
+      }
+
+      let output = `Gyms matching \`${name}\`:\n`;
+      for (let gym of results) {
+        let role = guild().roles.get(gym.region);
+        let role_name = role ? role.name : '(unknown region)';
+        output += `\n\`[${gym.handle}]\` ${gym.name} — _${role_name}_`;
       }
       send_quiet(msg.channel, output);
     })
@@ -1547,6 +1586,7 @@ function handle_request(msg, request, args) {
 
     case 'gym':       return handle_gym(msg, args);
     case 'ls-gyms':   return handle_ls_gyms(msg, args);
+    case 'search-gym':  return handle_search_gym(msg, args);
     case 'add-gym':   return handle_add_gym(msg, args);
 
     case 'raid':      return handle_raid(msg, args);
