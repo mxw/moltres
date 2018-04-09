@@ -1555,7 +1555,12 @@ function handle_join(msg, args) {
           output += '.';
         }
 
-        output += `\n\nTo join this raid time, enter \`$join ${handle}\`.`;
+        output += '\n\nTo join this raid time, enter ';
+        if (call_time !== null) {
+          output += `\`$join ${handle} ${time_str(calls.time)}\`.`;
+        } else {
+          output += `\`$join ${handle}\`.`;
+        }
 
         msg.channel.send(output)
           .then(join_msg => {
