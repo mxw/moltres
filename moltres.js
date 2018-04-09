@@ -452,16 +452,27 @@ function chain_reaccs(msg, ...reaccs) {
 }
 
 /*
- * Get a Role by `name' for the guild `msg' belongs to.
+ * Get a Role by `name' for the global guild.
+ *
+ * This performs a case-insensitive prefix match of `name' against the names of
+ * all roles in the guild.  If that fails, it tries again replacing all hyphens
+ * with whitespace.
  */
 function get_role(name) {
-  let role = guild().roles.find('name', name);
-  if (role) return role;
+  let impl = function(name) {
+    let role = guild().roles.find('name', name);
+    if (role) return role;
 
-  let matches = guild().roles.filterArray(
-    role => role.name.toLowerCase().startsWith(name.toLowerCase())
-  );
-  return matches.length === 1 ? matches[0] : null;
+    let matches = guild().roles.filterArray(
+      role => role.name.toLowerCase().startsWith(name.toLowerCase())
+    );
+    return matches.length === 1 ? matches[0] : null;
+  };
+
+  let role = impl(name);
+  if (role !== null) return role;
+
+  return impl(name.replace(/-/g, ' '));
 }
 
 /*
