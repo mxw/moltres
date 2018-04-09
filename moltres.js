@@ -160,7 +160,7 @@ const reqs = {
     desc: 'Search for gyms matching a name fragment.',
     detail: [
       'This will find all gyms with handles _and_ in-game names matching the',
-      'search term.',
+      'search term.\n\n**Aliases**: `$search`, `$search-gyms`',
     ],
     examples: [
     ],
@@ -324,6 +324,7 @@ const req_aliases = {
   'gyms':    'ls-gyms',
   'raids':   'ls-raids',
   'regions': 'ls-regions',
+  'search':      'search-gym',
   'search-gyms': 'search-gym',
 };
 
