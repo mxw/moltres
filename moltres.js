@@ -66,14 +66,14 @@ const Permission = {
 /*
  * Order of display for $help.
  */
-const cmd_order = [
+const req_order = [
   'help', 'set-perm', 'test', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', null,
   'call-time', 'change-time', 'join', 'unjoin',
 ];
 
-const cmd_to_perm = {
+const req_to_perm = {
   egg:    'report',
   boss:   'report',
   update: 'report',
@@ -81,7 +81,7 @@ const cmd_to_perm = {
   'change-time': 'call',
 };
 
-const cmds = {
+const reqs = {
   'help': {
     perms: Permission.NONE,
     dm: true,
@@ -320,7 +320,7 @@ const cmds = {
   },
 };
 
-const cmd_aliases = {
+const req_aliases = {
   'gyms':    'ls-gyms',
   'raids':   'ls-raids',
   'regions': 'ls-regions',
@@ -506,13 +506,13 @@ function log_invalid(msg, str, keep = false) {
 };
 
 /*
- * Get the usage string for `cmd'.
+ * Get the usage string for `req'.
  */
-function usage_string(cmd) {
-  if (!(cmd in cmds)) return null;
-  return `**Usage**: \`\$${cmd} ${cmds[cmd].usage}\`
+function usage_string(req) {
+  if (!(req in reqs)) return null;
+  return `**Usage**: \`\$${req} ${reqs[req].usage}\`
 
-${cmds[cmd].detail.join(' ')}
+${reqs[req].detail.join(' ')}
 
 Arguments in \`<>\` are required; arguments in \`[]\` are optional.`;
 }
@@ -715,9 +715,9 @@ function handle_help(msg, args) {
   if (args.length === 0) {
     out = get_emoji('valor') +
           '  Please choose your request from the following:\n\n';
-    for (let cmd of cmd_order) {
-      if (cmd !== null) {
-        out += `\`\$${cmd}\`:  ${cmds[cmd].desc}\n`;
+    for (let req of req_order) {
+      if (req !== null) {
+        out += `\`\$${req}\`:  ${reqs[req].desc}\n`;
       } else {
         out += '\n';
       }
@@ -734,13 +734,13 @@ function handle_help(msg, args) {
       'You can help out at: <https://github.com/mxw/moltres>',
     ].join(' ');
   } else {
-    let [cmd] = args;
-    cmd = cmd_aliases[cmd] || cmd;
+    let [req] = args;
+    req = req_aliases[req] || req;
 
-    if (!(cmd in cmds)) {
-      return log_invalid(msg, `Invalid request \`${cmd}\`.`);
+    if (!(req in reqs)) {
+      return log_invalid(msg, `Invalid request \`${req}\`.`);
     }
-    out = `\`${cmd}\`:  ${cmds[cmd].desc}\n\n${usage_string(cmd)}`;
+    out = `\`${req}\`:  ${reqs[req].desc}\n\n${usage_string(req)}`;
   }
 
   if (config.admin_ids.has(msg.author.id)) {
@@ -1624,7 +1624,7 @@ function handle_request(msg, request, args) {
     return handle_help(msg, [request]);
   }
 
-  let params_range = cmds[request].args;
+  let params_range = reqs[request].args;
 
   if (args.length < params_range[0] || args.length > params_range[1]) {
     return log_invalid(msg, usage_string(request));
@@ -1667,13 +1667,13 @@ function handle_request_with_check(msg, request, args) {
   let output = `[${msg.author.tag}] \`\$${request}\` ${args.join(' ')}`;
   send_quiet(log, output);
 
-  request = cmd_aliases[request] || request;
+  request = req_aliases[request] || request;
 
-  if (!(request in cmds)) {
+  if (!(request in reqs)) {
     return log_invalid(msg, `Invalid request \`${request}\`.`);
   }
 
-  let req_meta = cmds[request];
+  let req_meta = reqs[request];
 
   if (!req_meta.dm && msg.channel.type === 'dm') {
     return log_invalid(msg, `\`\$${request}\` can't be handled via DM`, true);
@@ -1686,7 +1686,7 @@ function handle_request_with_check(msg, request, args) {
 
   conn.query(
     'SELECT * FROM permissions WHERE (cmd = ? AND user_id = ?)',
-    [cmd_to_perm[request] || request, user_id],
+    [req_to_perm[request] || request, user_id],
 
     errwrap(msg, function (msg, results) {
       let permitted =
