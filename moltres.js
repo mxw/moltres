@@ -59,7 +59,8 @@ process.on('uncaughtException', (err) => {
 const Permission = {
   ADMIN: 0,
   NONE: 1,
-  TABLE: 2,
+  WHITELIST: 2,
+  BLACKLIST: 3,
 };
 
 /*
@@ -71,6 +72,14 @@ const cmd_order = [
   'raid', 'ls-raids', 'egg', 'boss', 'update', null,
   'call-time', 'change-time', 'join', 'unjoin',
 ];
+
+const cmd_to_perm = {
+  egg:    'report',
+  boss:   'report',
+  update: 'report',
+  'call-time':   'call',
+  'change-time': 'call',
+};
 
 const cmds = {
   'help': {
@@ -88,7 +97,7 @@ const cmds = {
     ],
   },
   'set-perm': {
-    perms: Permission.TABLE,
+    perms: Permission.ADMIN,
     dm: false,
     usage: '<user> <request>',
     args: [2, 2],
@@ -157,7 +166,7 @@ const cmds = {
     ],
   },
   'add-gym': {
-    perms: Permission.TABLE,
+    perms: Permission.WHITELIST,
     dm: false,
     usage: '<handle> <region> <lat> <lng> <name>',
     args: [5, 100],
@@ -216,7 +225,7 @@ const cmds = {
     ],
   },
   'egg': {
-    perms: Permission.NONE,
+    perms: Permission.BLACKLIST,
     dm: false,
     usage: '<gym-handle> <tier> <time-til-hatch MM:SS>',
     args: [3, 3],
@@ -230,7 +239,7 @@ const cmds = {
     ],
   },
   'boss': {
-    perms: Permission.NONE,
+    perms: Permission.BLACKLIST,
     dm: false,
     usage: '<gym-handle> <boss> <time-til-despawn MM:SS>',
     args: [3, 3],
@@ -243,7 +252,7 @@ const cmds = {
     ],
   },
   'update': {
-    perms: Permission.NONE,
+    perms: Permission.BLACKLIST,
     dm: false,
     usage: '<gym-handle> <tier-or-boss-or-despawn-time-or-team>',
     args: [2, 2],
@@ -257,7 +266,7 @@ const cmds = {
   },
 
   'call-time': {
-    perms: Permission.NONE,
+    perms: Permission.BLACKLIST,
     dm: false,
     usage: '<gym-handle> <HH:MM> [num-extras]',
     args: [2, 3],
@@ -270,7 +279,7 @@ const cmds = {
     ],
   },
   'change-time': {
-    perms: Permission.NONE,
+    perms: Permission.BLACKLIST,
     dm: false,
     usage: '<gym-handle> <current-HH:MM> to <desired-HH:MM>',
     args: [4, 4],
@@ -1664,24 +1673,29 @@ function handle_request_with_check(msg, request, args) {
     return log_invalid(msg, `Invalid request \`${request}\`.`);
   }
 
-  if (!cmds[request].dm && msg.channel.type === 'dm') {
+  let req_meta = cmds[request];
+
+  if (!req_meta.dm && msg.channel.type === 'dm') {
     return log_invalid(msg, `\`\$${request}\` can't be handled via DM`, true);
   }
 
   if (config.admin_ids.has(user_id) ||
-      cmds[request].perms === Permission.NONE) {
+      req_meta.perms === Permission.NONE) {
     return handle_request(msg, request, args);
   }
 
   conn.query(
     'SELECT * FROM permissions WHERE (cmd = ? AND user_id = ?)',
-    [request, user_id],
+    [cmd_to_perm[request] || request, user_id],
 
     errwrap(msg, function (msg, results) {
-      if (results.length === 1) {
+      let permitted =
+        (results.length === 1 && req_meta.perms === Permission.WHITELIST) ||
+        (results.length === 0 && req_meta.perms === Permission.BLACKLIST);
+
+      if (permitted) {
         return handle_request(msg, request, args);
       }
-
       return log_invalid(msg,
         `User ${msg.author.tag} does not have permissions for ${request} ` +
         get_emoji('dealwithit') + '.'
