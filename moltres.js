@@ -704,6 +704,13 @@ function time_str(date) {
   });
 }
 
+function time_str_short(date) {
+  let str = time_str(date);
+  let pos = str.indexOf(' ');
+  if (pos === -1) return str;
+  return str.substr(0, pos);
+}
+
 /*
  * Get the raid pop or hatch time from a despawn time.
  */
@@ -1422,7 +1429,7 @@ function handle_call_time(msg, args) {
             `at ${gym_name(raid)} ` +
             `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
             `\n\nTo join this raid time, enter ` +
-            `\`$join ${raid.handle} ${time_str(time)}\`.`;
+            `\`$join ${raid.handle} ${time}\`.`;
           send_quiet(msg.channel, output);
 
           set_raid_alarm(msg, raid.handle, call_time);
@@ -1578,7 +1585,7 @@ function handle_join(msg, args) {
 
         output += '\n\nTo join this raid time, enter ';
         if (call_time !== null) {
-          output += `\`$join ${handle} ${time_str(calls.time)}\`.`;
+          output += `\`$join ${handle} ${time_str_short(calls.time)}\`.`;
         } else {
           output += `\`$join ${handle}\`.`;
         }
