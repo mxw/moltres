@@ -329,6 +329,9 @@ const req_aliases = {
 };
 
 const raid_tiers = {
+  bulbasaur: 1,
+  charmander: 1,
+  squirtle: 1,
   magikarp: 1,
   duskull: 1,
   shuppet: 1,
@@ -338,24 +341,37 @@ const raid_tiers = {
 
   electabuzz: 2,
   exeggutor: 2,
+  lickitung: 2,
   manectric: 2,
   mawile: 2,
   misdreavus: 2,
+  muk: 2,
   sableye: 2,
   sneasel: 2,
+  venomoth: 2,
+  weezing: 2,
 
+  aerodactyl: 3,
+  alakazam: 3,
   gengar: 3,
   granbull: 3,
   jolteon: 3,
   jynx: 3,
+  kabutops: 3,
   machamp: 3,
+  omastar: 3,
+  onix: 3,
   piloswine: 3,
   pinsir: 3,
+  scyther: 3,
 
   absol: 4,
   aggron: 4,
   golem: 4,
   houndoom: 4,
+  lapras: 4,
+  rhydon: 4,
+  snorlax: 4,
   tyranitar: 4,
   walrein: 4,
 
