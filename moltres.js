@@ -480,6 +480,9 @@ function get_role(name) {
     let role = guild().roles.find('name', name);
     if (role) return role;
 
+    role = guild().roles.find('name', capitalize(name));
+    if (role) return role;
+
     let matches = guild().roles.filterArray(
       role => role.name.toLowerCase().startsWith(name.toLowerCase())
     );
