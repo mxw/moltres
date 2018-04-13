@@ -438,17 +438,20 @@ function refresh(msg) {
  * Avoid polluting the rest of the file with emoji.
  */
 const emoji_by_name = {
+  alarm_clock: '⏰',
+  clock230: '🕝',
   cry: '😢',
+  dragon: '🐉',
   no_entry_sign: '🚫',
   no_good: '🙅',
   thinking: '🤔',
 };
 
 /*
- * Get a custom emoji by name.
+ * Get an emoji by name.
  */
 function get_emoji(name) {
-  return moltres.emojis.find('name', name);
+  return emoji_by_name[name] || moltres.emojis.find('name', name);
 }
 
 /*
@@ -458,11 +461,11 @@ function chain_reaccs(msg, ...reaccs) {
   if (reaccs.length === 0) return;
   let [head, ...tail] = reaccs;
 
-  let emoji = emoji_by_name[head] || get_emoji(head);
+  let emoji = get_emoji(head);
   let promise = msg.react(emoji);
 
   for (let name of tail) {
-    let emoji = emoji_by_name[name] || get_emoji(name);
+    let emoji = get_emoji(name);
     promise = promise.then(r => r.message.react(emoji));
   }
   promise.catch(console.error);
@@ -808,6 +811,7 @@ function handle_set_perm(msg, args) {
 
 function handle_test(msg, args) {
   chain_reaccs(msg, 'cry', 'no_good', 'approved', 'RaidEgg');
+  send_quiet(msg.channel, get_emoji('dragon') + ' sup');
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1210,11 +1214,11 @@ function handle_report(msg, handle, tier_in, boss, timer_in) {
 
       if (boss === null) {
         let hatch = hatch_from_despawn(despawn);
-        output = `**T${tier} egg** ` +
+        output = `${get_emoji('RaidEgg')} **T${tier} egg** ` +
                  `hatches at \`[${handle}]\` at ${time_str(hatch)} `;
       } else {
         let raid = {tier: tier, boss: boss};
-        output = `**${fmt_tier_boss(raid)} raid** ` +
+        output = `${get_emoji('dragon')} **${fmt_tier_boss(raid)} raid** ` +
                  `despawns at \`[${handle}]\` at ${time_str(despawn)} `;
       }
       output += `(reported by ${msg.author}).`;
@@ -1340,7 +1344,8 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
       if (row === null || raiders.length === 0) return;
 
       let output =
-        `${gyaoo}  Raid call for ${gym_name(row.gyms)} ` +
+        `${gyaoo} ${get_emoji('alarm_clock')} ` +
+        `Raid call for ${gym_name(row.gyms)} ` +
         `at \`${time_str(call_time)}\` is in ${before} minutes!` +
         `\n\n${raiders.map(m => m.user).join(' ')}`;
       send_quiet(msg.channel, output);
@@ -1443,7 +1448,7 @@ function handle_call_time(msg, args) {
 
           let role_str = raid.silent ? role.name : role.toString();
 
-          let output =
+          let output = get_emoji('clock230') + ' ' +
             `${role_str} **${fmt_tier_boss(raid)}** raid ` +
             `at ${gym_name(raid)} ` +
             `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
@@ -1591,8 +1596,8 @@ function handle_join(msg, args) {
 
         raiders = raiders.filter(user => user.id != msg.author.id);
 
-        let output = get_emoji('valor') +
-          `  ${msg.author} is joining at ${time_str(calls.time)} ` +
+        let output = get_emoji('valor') + '  ' +
+          `${msg.author} is joining at ${time_str(calls.time)} ` +
           `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
 
         if (raiders.length !== 0) {
