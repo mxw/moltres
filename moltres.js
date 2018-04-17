@@ -408,10 +408,18 @@ function guild() {
 }
 
 /*
- * Wrappers around send() that swallow exceptions.
+ * Wrappers around send() that chain messages and swallow exceptions.
  */
-function send_quiet(channel, content) {
-  return channel.send(content).catch(console.error);
+function send_quiet(channel, ...contents) {
+  if (contents.length === 0) return;
+  let [head, ...tail] = contents;
+
+  let promise = channel.send(head);
+
+  for (let item of tail) {
+    promise = promise.then(m => m.channel.send(item));
+  }
+  return promise.catch(console.error);
 }
 function dm_quiet(user, content) {
   return user.createDM()
@@ -885,11 +893,20 @@ function handle_ls_gyms(msg, args) {
         return chain_reaccs(msg, 'no_entry_sign');
       }
 
+      let outvec = [];
       let output = `Gyms in **${role.name}**:\n`;
+
       for (let gym of results) {
-        output += `\n\`[${gym.handle}]\` ${gym.name}`;
+        let appendum = `\n\`[${gym.handle}]\` ${gym.name}`;
+        if (output.length + appendum.length >= 2000) {
+          outvec.push(output);
+          output = '';
+        }
+        output += appendum;
       }
-      send_quiet(msg.channel, output);
+      if (output.length !== 0) outvec.push(output);
+
+      send_quiet(msg.channel, ...outvec);
     })
   );
 }
