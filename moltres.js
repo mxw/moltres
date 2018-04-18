@@ -69,7 +69,7 @@ const Permission = {
 const req_order = [
   'help', 'set-perm', 'test', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
-  'raid', 'ls-raids', 'egg', 'boss', 'update', null,
+  'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
   'call-time', 'change-time', 'join', 'unjoin',
 ];
 
@@ -260,6 +260,18 @@ const reqs = {
     detail: [
       'Note that unlike `$egg` and `$boss`, times are interpreted as',
       '_despawn times_, not countdown timers.',
+    ],
+    examples: [
+    ],
+  },
+  'scrub': {
+    perms: Permission.WHITELIST,
+    dm: false,
+    usage: '<gym-handle>',
+    args: [1, 1],
+    desc: 'Delete a reported raid and all associated information.',
+    detail: [
+      'Please use sparingly, only to undo mistakes.',
     ],
     examples: [
     ],
@@ -1318,6 +1330,37 @@ function handle_update(msg, args) {
   );
 }
 
+function handle_scrub(msg, args) {
+  let [handle] = args;
+  handle = handle.toLowerCase();
+
+  conn.query(
+    'SELECT * FROM ' +
+    '   gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
+    '   WHERE ' + where_one_gym(handle),
+
+    errwrap(msg, function (msg, results) {
+      if (!check_one_gym(msg, handle, results)) return;
+      let [raid] = results;
+
+      conn.query(
+        'DELETE FROM raids WHERE gym_id = ?',
+        [raid.gym_id],
+
+        mutation_handler(msg, null, function (msg, result) {
+          let spotter = guild().members.get(raid.spotter);
+          if (!spotter) return;
+
+          send_quiet(msg.channel,
+            `${get_emoji('banned')} Raid reported by ${spotter} ` +
+            `at ${gym_name(raid)} was scrubbed.`
+          );
+        })
+      );
+    })
+  );
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Raid call handlers.
 
@@ -1706,6 +1749,7 @@ function handle_request(msg, request, args) {
     case 'egg':       return handle_egg(msg, args);
     case 'boss':      return handle_boss(msg, args);
     case 'update':    return handle_update(msg, args);
+    case 'scrub':     return handle_scrub(msg, args);
 
     case 'call-time': return handle_call_time(msg, args);
     case 'change-time': return handle_change_time(msg, args);
