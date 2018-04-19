@@ -420,9 +420,9 @@ function guild() {
 }
 
 /*
- * Wrappers around send() that chain messages and swallow exceptions.
+ * Wrapper around send() that chains messages and swallows exceptions.
  */
-function send_quiet(channel, ...contents) {
+function send_quiet_impl(channel, ...contents) {
   if (contents.length === 0) return;
   let [head, ...tail] = contents;
 
@@ -433,9 +433,27 @@ function send_quiet(channel, ...contents) {
   }
   return promise.catch(console.error);
 }
+
+/*
+ * Wrappers around send_quiet_impl() which perform message chunking.
+ */
+function send_quiet(channel, content) {
+  let outvec = [];
+
+  while (content.length >= 2000) {
+    let split_pos = content.lastIndexOf('\n', 2000);
+    if (split_pos === -1) split_pos = 2000;
+
+    outvec.push(content.substr(0, split_pos));
+    content = content.substr(split_pos);
+  }
+  outvec.push(content);
+
+  send_quiet_impl(channel, ...outvec);
+}
 function dm_quiet(user, content) {
   return user.createDM()
-    .then(dm => dm.send(content))
+    .then(dm => send_quiet(dm, content))
     .catch(console.error);
 }
 
@@ -905,20 +923,12 @@ function handle_ls_gyms(msg, args) {
         return chain_reaccs(msg, 'no_entry_sign');
       }
 
-      let outvec = [];
       let output = `Gyms in **${role.name}**:\n`;
 
       for (let gym of results) {
-        let appendum = `\n\`[${gym.handle}]\` ${gym.name}`;
-        if (output.length + appendum.length >= 2000) {
-          outvec.push(output);
-          output = '';
-        }
-        output += appendum;
+        output += `\n\`[${gym.handle}]\` ${gym.name}`;
       }
-      if (output.length !== 0) outvec.push(output);
-
-      send_quiet(msg.channel, ...outvec);
+      send_quiet(msg.channel, output);
     })
   );
 }
