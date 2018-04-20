@@ -93,8 +93,10 @@ const reqs = {
       '`$help req` or `$req help` to get more information about a specific',
       'request.',
     ],
-    examples: [
-    ],
+    examples: {
+      'help': 'Sends you this message in a DM.',
+      'boss': 'Sends you information about the `$boss` request by DM.',
+    },
   },
   'set-perm': {
     perms: Permission.ADMIN,
@@ -105,8 +107,8 @@ const reqs = {
     detail: [
       'The user should be identified by tag.',
     ],
-    examples: [
-    ],
+    examples: {
+    },
   },
   'test': {
     perms: Permission.ADMIN,
@@ -117,8 +119,8 @@ const reqs = {
     detail: [
       'This request is only available to me.',
     ],
-    examples: [
-    ],
+    examples: {
+    },
   },
 
   'gym': {
@@ -134,8 +136,10 @@ const reqs = {
       'if you want to see all the gym handles (but they should be what you',
       'expect).',
     ],
-    examples: [
-    ],
+    examples: {
+      'galaxy-sph': 'Get information about **Galaxy: Earth Sphere**.',
+      'Galaxy: Earth Sphere': 'This is an invalid request.',
+    },
   },
   'ls-gyms': {
     perms: Permission.NONE,
@@ -147,10 +151,13 @@ const reqs = {
       'The region name should be any valid region role (without the `@`).',
       'Case doesn\'t matter, and uniquely-identifying prefixes are allowed,',
       'so, e.g., `harvard` will work, but `boston` will not (but `boston',
-      'common` is fine).\n\n**Aliases**: `$gyms`',
+      'common` is fine).',
     ],
-    examples: [
-    ],
+    examples: {
+      'boston c': 'List gyms in Boston Common/Garden.',
+      'boston-common': 'Same as above.',
+      'boston': 'Error; ambiguous region name.',
+    },
   },
   'search-gym': {
     perms: Permission.NONE,
@@ -160,10 +167,12 @@ const reqs = {
     desc: 'Search for gyms matching a name fragment.',
     detail: [
       'This will find all gyms with handles _and_ in-game names matching the',
-      'search term.\n\n**Aliases**: `$search`, `$search-gyms`',
+      'search term.',
     ],
-    examples: [
-    ],
+    examples: {
+      'sprint': 'List all Sprint store gyms (or other gyms with "sprint" ' +
+                'in the name).',
+    },
   },
   'add-gym': {
     perms: Permission.WHITELIST,
@@ -180,8 +189,8 @@ const reqs = {
       'over from <http://www.massmwcreaturemap.com/>. Note that the latitude',
       'argument is allowed to contain a trailing comma, for ease of copying.',
     ],
-    examples: [
-    ],
+    examples: {
+    },
   },
   'ls-regions': {
     perms: Permission.NONE,
@@ -190,11 +199,10 @@ const reqs = {
     args: [0, 0],
     desc: 'List all regions with registered gyms.',
     detail: [
-      'Listed regions correspond to taggable server regional roles.\n\n' +
-      '**Aliases**: `$regions`',
+      'Listed regions correspond to taggable server regional roles.',
     ],
-    examples: [
-    ],
+    examples: {
+    },
   },
 
   'raid': {
@@ -204,10 +212,10 @@ const reqs = {
     args: [1, 1],
     desc: 'Get information about the current raid at a gym.',
     detail: [
-      'See `$help gym` for details on gym handles.',
+      'Works just like `$gym`; see `$help gym` for more information.',
     ],
-    examples: [
-    ],
+    examples: {
+    },
   },
   'ls-raids': {
     perms: Permission.NONE,
@@ -219,10 +227,10 @@ const reqs = {
       'The region name should be any valid region role (without the `@`).',
       'Case doesn\'t matter, and uniquely-identifying prefixes are allowed,',
       'so, e.g., `harvard` will work, but `boston` will not (but `boston',
-      'common` is fine).\n\n**Aliases**: `$raids`',
+      'common` is fine).  See `$help ls-gyms` for examples.',
     ],
-    examples: [
-    ],
+    examples: {
+    },
   },
   'egg': {
     perms: Permission.BLACKLIST,
@@ -235,8 +243,12 @@ const reqs = {
       'should be the current _**countdown timer**_, not a time of day. See',
       '`$help gym` for details on gym handles.',
     ],
-    examples: [
-    ],
+    examples: {
+      'galaxy-sphere 5 3:35':
+        'Report a T5 egg hatching at **Galaxy: Earth Sphere** in three ' +
+        'minutes and thirty-five seconds.',
+      'galaxy sphere 5 3:35': 'Invalid because `sphere` is not a raid tier.',
+    },
   },
   'boss': {
     perms: Permission.BLACKLIST,
@@ -248,8 +260,14 @@ const reqs = {
       'The time should be the current _**countdown timer**_, not a time of',
       'day. See `$help gym` for details on gym handles.',
     ],
-    examples: [
-    ],
+    examples: {
+      'galaxy-sphere latios 3:35':
+        'Report a Latios at **Galaxy: Earth Sphere** that despawns in three ' +
+        'minutes and thirty-five seconds.',
+      'galaxy sphere latios 3:35':
+        'Invalid because `sphere` is not a raid tier.',
+      'galaxy 5 3:35': 'Invalid because `5` is not a Pokemon.',
+    },
   },
   'update': {
     perms: Permission.BLACKLIST,
@@ -261,8 +279,14 @@ const reqs = {
       'Note that unlike `$egg` and `$boss`, times are interpreted as',
       '_despawn times_, not countdown timers.',
     ],
-    examples: [
-    ],
+    examples: {
+      'galaxy 4': 'Change the raid tier at Galaxy to 4.',
+      'galaxy tyranitar': 'Set the raid boss at Galaxy to Tyranitar.',
+      'galaxy 3:35':
+        'Adjust the egg/boss timer to indicate that, once the egg hatches ' +
+        '(or if it\'s already hatched), it will despawn at 3:35 p.m.',
+      'galaxy valor': 'Brag about your gym control.',
+    },
   },
   'scrub': {
     perms: Permission.WHITELIST,
@@ -273,8 +297,8 @@ const reqs = {
     detail: [
       'Please use sparingly, only to undo mistakes.',
     ],
-    examples: [
-    ],
+    examples: {
+    },
   },
 
   'call-time': {
@@ -286,9 +310,15 @@ const reqs = {
     detail: [
       'Setting multiple call times is allowed (and encouraged!), but make',
       'sure not to double-call the same time, or Moltres will be mad at you.',
+      'Be aware that calling a time will tag the region that the gym is',
+      'registered in.',
     ],
-    examples: [
-    ],
+    examples: {
+      'galaxy 1:42': 'Tag Kendall Square to call a raid meetup time at 1:42 ' +
+                     'for **Galaxy: Earth Sphere**.',
+      'galaxy 1:42 2': 'Same as above, but indicate that you\'re coming ' +
+                       'with +2 extra people.',
+    },
   },
   'change-time': {
     perms: Permission.BLACKLIST,
@@ -299,10 +329,13 @@ const reqs = {
     detail: [
       'Make sure to include the `to`; it\'s just there to enforce the right',
       'direction.  Anyone can change a called time, not just the original',
-      'caller.',
+      'caller.  Changing a time will tag everyone who joined the original',
+      'time.',
     ],
-    examples: [
-    ],
+    examples: {
+      'galaxy 1:42 to 2:00': 'Change the 1:42 p.m. raid meetup for ' +
+                             '**Galaxy: Earth Sphere** to 1:52 p.m.',
+    },
   },
   'join': {
     perms: Permission.NONE,
@@ -314,8 +347,14 @@ const reqs = {
       'You don\'t need to specify the time _unless_ the raid has multiple',
       'called times, in which case you do.',
     ],
-    examples: [
-    ],
+    examples: {
+      'galaxy': 'Join the raid meetup at **Galaxy: Earth Sphere**.  This ' +
+                'only works if there is only a single called time.',
+      'galaxy 2': 'Same as above, but indicate that you have +2 extra raiders.',
+      'galaxy 1:42': 'Join the 1:42 p.m. raid at **Galaxy: Earth Sphere**.',
+      'galaxy 1:42 2': 'Same as above, but indicate that you have +2 extra ' +
+                       'raiders.'
+    },
   },
   'unjoin': {
     perms: Permission.NONE,
@@ -327,8 +366,11 @@ const reqs = {
       'As with `$join`, you don\'t need to specify the time _unless_ the',
       'raid has multiple called times, in which case you do.',
     ],
-    examples: [
-    ],
+    examples: {
+      'galaxy': 'Unjoin the raid at **Galaxy: Earth Sphere**.  This ' +
+                'only works if there is only a single called time.',
+      'galaxy 1:42': 'Unjoin the 1:42 p.m. raid at **Galaxy: Earth Sphere**.',
+    },
   },
 };
 
@@ -582,11 +624,28 @@ function log_invalid(msg, str, keep = false) {
  */
 function usage_string(req) {
   if (!(req in reqs)) return null;
-  return `**Usage**: \`\$${req} ${reqs[req].usage}\`
+  let meta = reqs[req];
 
-${reqs[req].detail.join(' ')}
+  let result = `**Usage**: \`\$${req} ${meta.usage}\`
 
-Arguments in \`<>\` are required; arguments in \`[]\` are optional.`;
+${meta.detail.join(' ')}
+
+(Arguments in \`<>\` are required; arguments in \`[]\` are optional.)`;
+
+  let aliases = Object.keys(req_aliases)
+    .filter(k => req_aliases[k] === req)
+    .map(a => `\`\$${a}\``);
+  if (aliases.length > 0) {
+    result += `\n\n**Aliases**: ${aliases.join(', ')}`;
+  }
+
+  if (Object.keys(meta.examples).length === 0) return result;
+  result += '\n\n**Examples**:';
+
+  for (let ex in meta.examples) {
+    result += `\n\t\`\$${req} ${ex}\`: ${meta.examples[ex]}`;
+  }
+  return result;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -819,7 +878,7 @@ function handle_help(msg, args) {
     if (!(req in reqs)) {
       return log_invalid(msg, `Invalid request \`${req}\`.`);
     }
-    out = `\`${req}\`:  ${reqs[req].desc}\n\n${usage_string(req)}`;
+    out = `\`\$${req}\`:  ${reqs[req].desc}\n\n${usage_string(req)}`;
   }
 
   if (config.admin_ids.has(msg.author.id)) {
