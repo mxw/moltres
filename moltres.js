@@ -63,6 +63,16 @@ const Permission = {
   BLACKLIST: 3,
 };
 
+const Arg = {
+  STR: 1,
+  INT: 2,
+  VARIADIC: 3,
+  HOURMIN: 4,
+  TIMER: 5,
+  TIER: 6,
+  BOSS: 7,
+};
+
 /*
  * Order of display for $help.
  */
@@ -86,7 +96,7 @@ const reqs = {
     perms: Permission.NONE,
     dm: true,
     usage: '[request]',
-    args: [0, 1],
+    args: [-Arg.STR],
     desc: 'Learn about our team\'s legendary avatar.',
     detail: [
       'Just `$help` will list all common requests. You can also use',
@@ -102,7 +112,7 @@ const reqs = {
     perms: Permission.ADMIN,
     dm: false,
     usage: '<user> <request>',
-    args: [2, 2],
+    args: [Arg.STR, Arg.STR],
     desc: 'Enable others to use more requests.',
     detail: [
       'The user should be identified by tag.',
@@ -112,9 +122,9 @@ const reqs = {
   },
   'test': {
     perms: Permission.ADMIN,
-    dm: false,
+    dm: true,
     usage: '',
-    args: [0, 100],
+    args: null,
     desc: 'Flavor of the week testing command.',
     detail: [
       'This request is only available to me.',
@@ -126,8 +136,8 @@ const reqs = {
   'gym': {
     perms: Permission.NONE,
     dm: true,
-    usage: '<handle>',
-    args: [1, 1],
+    usage: '<gym-handle-or-name>',
+    args: [Arg.VARIADIC],
     desc: 'Get information about a gym.',
     detail: [
       'A gym handle is something like `jh-john-harvard` or `newtowne`.',
@@ -145,7 +155,7 @@ const reqs = {
     perms: Permission.NONE,
     dm: true,
     usage: '<region-name>',
-    args: [1, 100],
+    args: [Arg.VARIADIC],
     desc: 'List all gyms in a region.',
     detail: [
       'The region name should be any valid region role (without the `@`).',
@@ -163,7 +173,7 @@ const reqs = {
     perms: Permission.NONE,
     dm: true,
     usage: '<partial-handle-or-name>',
-    args: [1, 100],
+    args: [Arg.VARIADIC],
     desc: 'Search for gyms matching a name fragment.',
     detail: [
       'This will find all gyms with handles _and_ in-game names matching the',
@@ -177,8 +187,8 @@ const reqs = {
   'add-gym': {
     perms: Permission.WHITELIST,
     dm: false,
-    usage: '<handle> <region> <lat> <lng> <name>',
-    args: [5, 100],
+    usage: '<gym-handle> <region> <lat> <lng> <name>',
+    args: [Arg.STR, Arg.STR, Arg.STR, Arg.STR, Arg.VARIADIC],
     desc: 'Add a new gym to the database.',
     detail: [
       'The region can be either an @-tag, a numeric Discord ID, or a',
@@ -196,7 +206,7 @@ const reqs = {
     perms: Permission.NONE,
     dm: true,
     usage: '',
-    args: [0, 0],
+    args: [],
     desc: 'List all regions with registered gyms.',
     detail: [
       'Listed regions correspond to taggable server regional roles.',
@@ -208,8 +218,8 @@ const reqs = {
   'raid': {
     perms: Permission.NONE,
     dm: true,
-    usage: '<gym-handle>',
-    args: [1, 1],
+    usage: '<gym-handle-or-name>',
+    args: [Arg.VARIADIC],
     desc: 'Get information about the current raid at a gym.',
     detail: [
       'Works just like `$gym`; see `$help gym` for more information.',
@@ -221,7 +231,7 @@ const reqs = {
     perms: Permission.NONE,
     dm: true,
     usage: '<region-name>',
-    args: [1, 100],
+    args: [Arg.VARIADIC],
     desc: 'List all active raids in a region.',
     detail: [
       'The region name should be any valid region role (without the `@`).',
@@ -235,8 +245,8 @@ const reqs = {
   'egg': {
     perms: Permission.BLACKLIST,
     dm: false,
-    usage: '<gym-handle> <tier> <time-til-hatch MM:SS>',
-    args: [3, 3],
+    usage: '<gym-handle-or-name> <tier> <time-til-hatch MM:SS>',
+    args: [Arg.VARIADIC, Arg.TIER, Arg.TIMER],
     desc: 'Report a raid egg.',
     detail: [
       'The tier can be any number 1–5 or things like `t3` or `T4`. The time',
@@ -253,8 +263,8 @@ const reqs = {
   'boss': {
     perms: Permission.BLACKLIST,
     dm: false,
-    usage: '<gym-handle> <boss> <time-til-despawn MM:SS>',
-    args: [3, 3],
+    usage: '<gym-handle-or-name> <boss> <time-til-despawn MM:SS>',
+    args: [Arg.VARIADIC, Arg.BOSS, Arg.TIMER],
     desc: 'Report a hatched raid boss.',
     detail: [
       'The time should be the current _**countdown timer**_, not a time of',
@@ -272,8 +282,8 @@ const reqs = {
   'update': {
     perms: Permission.BLACKLIST,
     dm: false,
-    usage: '<gym-handle> <tier-or-boss-or-despawn-time-or-team>',
-    args: [2, 2],
+    usage: '<gym-handle-or-name> <tier-or-boss-or-despawn-time-or-team>',
+    args: [Arg.VARIADIC, Arg.STR],
     desc: 'Modify an active raid listing.',
     detail: [
       'Note that unlike `$egg` and `$boss`, times are interpreted as',
@@ -291,8 +301,8 @@ const reqs = {
   'scrub': {
     perms: Permission.WHITELIST,
     dm: false,
-    usage: '<gym-handle>',
-    args: [1, 1],
+    usage: '<gym-handle-or-name>',
+    args: [Arg.VARIADIC],
     desc: 'Delete a reported raid and all associated information.',
     detail: [
       'Please use sparingly, only to undo mistakes.',
@@ -305,7 +315,7 @@ const reqs = {
     perms: Permission.BLACKLIST,
     dm: false,
     usage: '<gym-handle> <HH:MM> [num-extras]',
-    args: [2, 3],
+    args: [Arg.STR, Arg.HOURMIN, -Arg.INT],
     desc: 'Call a time for a raid.',
     detail: [
       'Setting multiple call times is allowed (and encouraged!), but make',
@@ -324,7 +334,7 @@ const reqs = {
     perms: Permission.BLACKLIST,
     dm: false,
     usage: '<gym-handle> <current-HH:MM> to <desired-HH:MM>',
-    args: [4, 4],
+    args: [Arg.STR, Arg.HOURMIN, Arg.STR, Arg.HOURMIN],
     desc: 'Change a called time for a raid.',
     detail: [
       'Make sure to include the `to`; it\'s just there to enforce the right',
@@ -341,7 +351,7 @@ const reqs = {
     perms: Permission.NONE,
     dm: false,
     usage: '<gym-handle> [HH:MM] [num-extras]',
-    args: [1, 3],
+    args: [Arg.STR, -Arg.HOURMIN, -Arg.INT],
     desc: 'Join a called raid time.',
     detail: [
       'You don\'t need to specify the time _unless_ the raid has multiple',
@@ -360,7 +370,7 @@ const reqs = {
     perms: Permission.NONE,
     dm: false,
     usage: '<gym-handle> [HH:MM]',
-    args: [1, 2],
+    args: [Arg.STR, -Arg.HOURMIN],
     desc: 'Back out of a scheduled raid.',
     detail: [
       'As with `$join`, you don\'t need to specify the time _unless_ the',
@@ -719,7 +729,7 @@ function where_one_gym(handle) {
  * If `time' is null, instead we select for a single unique time.
  */
 function where_call_time(call_time = null) {
-  if (call_time !== null) {
+  if (!!call_time) {
     return mysql.format(' calls.time = ? ', [call_time]);
   }
   return ' (SELECT COUNT(*) FROM calls ' +
@@ -759,19 +769,6 @@ function select_rsvps(xtra_where, xtra_values, handle, fn) {
  */
 function get_now() {
   return new Date(Date.now());
-}
-
-/*
- * Extract the minutes and seconds from a raid countdown timer.
- */
-function parse_timer(timer) {
-  let matches = timer.match(/^(\d{1,2})[:.](\d\d)$/);
-  if (matches === null) return null;
-
-  let [_, mins, secs] = matches;
-  if (secs >= 60) return null;
-
-  return { mins: parseInt(mins), secs: parseInt(secs) };
 }
 
 /*
@@ -845,12 +842,156 @@ function hatch_from_despawn(despawn) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// Argument parsing.
+
+/*
+ * Extract the minutes and seconds from a raid countdown timer.
+ */
+function parse_timer(timer) {
+  let matches = timer.match(/^(\d{1,2})[:.](\d\d)$/);
+  if (matches === null) return null;
+
+  let [_, mins, secs] = matches;
+  if (secs >= 60) return null;
+
+  return { mins: parseInt(mins), secs: parseInt(secs) };
+}
+
+/*
+ * Pull the integer tier from a tier string (e.g., '5' or 'T5'), or return null
+ * if the string is not tier-like.
+ */
+function parse_tier(tier) {
+  if (tier.startsWith('T') || tier.startsWith('t')) {
+    tier = tier.substr(1);
+  }
+  let t = parseInt(tier);
+  if ('' + t !== tier) return null;
+  return (t >= 1 && t <= 5) ? t : null;
+}
+
+/*
+ * Invalid argument object.
+ */
+function InvalidArg(arg) {
+  this.arg = arg;
+}
+
+/*
+ * Parse a single argument `input' according to `kind'.
+ */
+function parse_one_arg(input, kind) {
+  switch (kind) {
+    case Arg.STR:
+      return input;
+    case Arg.INT: {
+      let i = parseInt(input);
+      return '' + i === input ? i : null;
+    }
+    case Arg.VARIADIC:
+      return input;
+    case Arg.HOURMIN:
+      return parse_hour_minute(input);
+    case Arg.TIMER:
+      return parse_timer(input);
+    case Arg.TIER:
+      return parse_tier(input);
+    case Arg.BOSS:
+      input = input.toLowerCase();
+      return input in raid_tiers ? input : null;
+    default: break;
+  }
+  return null;
+}
+
+/*
+ * Parse the `input' string using `spec'.
+ *
+ * Returns an array of extracted arguments.  Individual arguments may be
+ * InvalidArg if they were invalid in `input', or null if they were optional
+ * and not found.  If `input' has more or fewer space-separated arguments than
+ * `spec' requires, returns null.
+ */
+function parse_args(input, spec) {
+  input = input.trim();
+  if (spec === null) return [input];
+
+  let required = spec.filter(a => a >= 0).length;
+
+  if (input.length === 0) {
+    if (required > 0) return null;
+    return new Array(spec.length).fill(null);
+  }
+
+  let re = /\s+/g;
+  let splits = [{start: 0}];
+
+  // Construct an array of {start, end} records representing all the space-
+  // separated components of `input'.
+  while (true) {
+    let match = re.exec(input);
+    if (match === null) break;
+
+    splits[splits.length - 1].end = match.index;
+    splits.push({start: re.lastIndex});
+  }
+  splits[splits.length - 1].end = input.length;
+
+  if (splits.length < required) return null;
+
+  let argv = [];
+  let spec_idx = 0;
+  let split_idx = 0;
+
+  while (spec_idx < spec.length) {
+    let kind = spec[spec_idx++];
+
+    // Too few arguments.
+    if (split_idx >= splits.length) {
+      if (kind < 0) continue;
+      return null;
+    }
+
+    let info = splits[split_idx++];
+
+    if (Math.abs(kind) === Arg.VARIADIC) {
+      // Get the variadic component exactly as the user input it.
+      let variadic_split_end = splits.length - (spec.length - spec_idx);
+      if (split_idx < variadic_split_end) {
+        split_idx = variadic_split_end;
+      }
+
+      argv.push(input.substring(info.start, splits[split_idx - 1].end));
+      continue;
+    }
+
+    let raw = input.substring(info.start, info.end);
+    let arg = parse_one_arg(raw, Math.abs(kind));
+
+    if (kind >= 0 || split_idx === splits.length) {
+      argv.push(arg !== null ? arg : new InvalidArg(raw));
+    } else {
+      // If the argument was optional and failed to parse, assume the user
+      // intended to skip it and try to parse it again as the next argument.
+      argv.push(arg);
+      if (arg === null) --split_idx;
+    }
+  }
+
+  if (split_idx < splits.length) {
+    // Too many arguments.
+    return null;
+  }
+  return argv;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // General handlers.
 
-function handle_help(msg, args) {
+function handle_help(msg, req) {
   let out = null;
 
-  if (args.length === 0) {
+  if (req === null) {
     out = get_emoji('valor') +
           '  Please choose your request from the following:\n\n';
     for (let req of req_order) {
@@ -872,7 +1013,6 @@ function handle_help(msg, args) {
       'You can help out at: <https://github.com/mxw/moltres>',
     ].join(' ');
   } else {
-    let [req] = args;
     req = req_aliases[req] || req;
 
     if (!(req in reqs)) {
@@ -889,9 +1029,7 @@ function handle_help(msg, args) {
   }
 }
 
-function handle_set_perm(msg, args) {
-  let [user_tag, request] = args;
-
+function handle_set_perm(msg, user_tag, req) {
   if (!user_tag.match(Discord.MessageMentions.USERS_PATTERN) ||
       msg.mentions.users.size !== 1) {
     return log_invalid(msg, `Invalid user tag \`${user_tag}\`.`);
@@ -900,15 +1038,40 @@ function handle_set_perm(msg, args) {
 
   conn.query(
     'INSERT INTO permissions SET ?',
-    { cmd: request,
+    { cmd: req,
       user_id: user_id, },
     mutation_handler(msg)
   );
 }
 
 function handle_test(msg, args) {
-  chain_reaccs(msg, 'cry', 'no_good', 'approved', 'RaidEgg');
-  send_quiet(msg.channel, get_emoji('dragon') + ' sup');
+  args = 'foo \t12 1:42 1:42  t5 tyranitar';
+  console.log(parse_args(args, [
+    Arg.STR,
+    Arg.INT,
+    Arg.HOURMIN,
+    Arg.TIMER,
+    Arg.TIER,
+    Arg.BOSS,
+  ]));
+  console.log(parse_args(args, [Arg.VARIADIC, Arg.STR, Arg.STR]));
+  console.log(parse_args(args, [Arg.STR, Arg.VARIADIC, Arg.STR]));
+  console.log(parse_args(args, [Arg.STR, Arg.STR, Arg.VARIADIC]));
+
+  console.log(parse_args(args, [Arg.STR, Arg.INT, Arg.HOURMIN, Arg.TIMER]));
+
+  console.log(parse_args(args, [
+    Arg.STR,
+    Arg.INT,
+    -Arg.INT,
+    Arg.HOURMIN,
+    -Arg.TIER,
+    Arg.TIMER,
+    -Arg.BOSS,
+    Arg.TIER,
+    -Arg.TIMER,
+    Arg.BOSS,
+  ]));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -950,10 +1113,7 @@ region: ${guild().roles.get(gym.region).name}
 coords: <https://maps.google.com/maps?q=${gym.lat},${gym.lng}>`;
 }
 
-function handle_gym(msg, args) {
-  let [handle] = args;
-  handle = handle.toLowerCase();
-
+function handle_gym(msg, handle) {
   conn.query(
     'SELECT * FROM gyms WHERE handle LIKE ?',
     [`%${handle}%`],
@@ -967,8 +1127,7 @@ function handle_gym(msg, args) {
   );
 }
 
-function handle_ls_gyms(msg, args) {
-  let role_name = args.join(' ');
+function handle_ls_gyms(msg, role_name) {
   let role = get_role(role_name);
   if (role === null) {
     return log_invalid(msg, `Invalid region name \`${role_name}\`.`);
@@ -992,8 +1151,7 @@ function handle_ls_gyms(msg, args) {
   );
 }
 
-function handle_search_gym(msg, args) {
-  let name = args.join(' ');
+function handle_search_gym(msg, name) {
   let handle = name.replace(/ /g, '-');
 
   conn.query(
@@ -1018,8 +1176,7 @@ function handle_search_gym(msg, args) {
   );
 }
 
-function handle_add_gym(msg, args) {
-  let [handle, region_in, lat, lng, ...name] = args;
+function handle_add_gym(msg, handle, region_in, lat, lng, name) {
   handle = handle.toLowerCase();
 
   if (lat.charAt(lat.length - 1) === ',') {
@@ -1058,7 +1215,7 @@ function handle_add_gym(msg, args) {
   );
 }
 
-function handle_ls_regions(msg, args) {
+function handle_ls_regions(msg) {
   conn.query(
     'SELECT region FROM gyms GROUP BY region',
     errwrap(msg, function (msg, results) {
@@ -1081,20 +1238,6 @@ function handle_ls_regions(msg, args) {
 // Raid handlers.
 
 /*
- * Pull the integer tier from a tier string (e.g., '5' or 'T5'), or return null
- * if the string is not tier-like.
- */
-function parse_tier(tier) {
-  tier = '' + tier;
-
-  if (tier.startsWith('T') || tier.startsWith('t')) {
-    tier = tier.substr(1);
-  }
-  tier = parseInt(tier);
-  return (tier >= 1 && tier <= 5) ? tier : null;
-}
-
-/*
  * Canonical string for displaying a raid boss from a raids table row.
  */
 function fmt_tier_boss(raid) {
@@ -1110,10 +1253,7 @@ function fmt_tier_boss(raid) {
   return `T${tier} ${boss}`;
 }
 
-function handle_raid(msg, args) {
-  let [handle] = args;
-  handle = handle.toLowerCase();
-
+function handle_raid(msg, handle) {
   let now = get_now();
 
   select_rsvps('', [], handle, errwrap(msg, function (msg, results) {
@@ -1216,8 +1356,7 @@ hatch: ${time_str(hatch)}`;
   }));
 }
 
-function handle_ls_raids(msg, args) {
-  let role_name = args.join(' ');
+function handle_ls_raids(msg, role_name) {
   let role = get_role(role_name);
   if (role === null) {
     return log_invalid(msg, `Invalid region name \`${role_name}\`.`);
@@ -1269,17 +1408,12 @@ function handle_ls_raids(msg, args) {
   }));
 }
 
-function handle_report(msg, handle, tier_in, boss, timer_in) {
-  handle = handle.toLowerCase();
-
-  let tier = parse_tier(tier_in);
-  if (tier === null) {
-    return log_invalid(msg, `Invalid raid tier \`${tier_in}\`.`);
+function handle_report(msg, handle, tier, boss, timer) {
+  if (tier instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid raid tier \`${tier.arg}\`.`);
   }
-
-  let timer = parse_timer(timer_in);
-  if (timer === null) {
-    return log_invalid(msg, `Invalid MM:SS timer \`${timer_in}\`.`);
+  if (timer instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid MM:SS timer \`${timer.arg}\`.`);
   }
 
   let egg_adjust = boss === null ? 45 : 0;
@@ -1327,26 +1461,18 @@ function handle_report(msg, handle, tier_in, boss, timer_in) {
   );
 }
 
-function handle_egg(msg, args) {
-  let [handle, tier, timer] = args;
-
+function handle_egg(msg, handle, tier, timer) {
   handle_report(msg, handle, tier, null, timer);
 }
 
-function handle_boss(msg, args) {
-  let [handle, boss, timer] = args;
-  boss = boss.toLowerCase();
-
-  if (!(boss in raid_tiers)) {
+function handle_boss(msg, handle, boss, timer) {
+  if (boss === null) {
     return log_invalid(msg, `Unrecognized raid boss \`${boss}\`.`);
   }
-
   handle_report(msg, handle, raid_tiers[boss], boss, timer);
 }
 
-function handle_update(msg, args) {
-  let [handle, data] = args;
-  handle = handle.toLowerCase();
+function handle_update(msg, handle, data) {
   let data_lower = data.toLowerCase();
 
   let assignment = function() {
@@ -1399,10 +1525,7 @@ function handle_update(msg, args) {
   );
 }
 
-function handle_scrub(msg, args) {
-  let [handle] = args;
-  handle = handle.toLowerCase();
-
+function handle_scrub(msg, handle) {
   conn.query(
     'SELECT * FROM ' +
     '   gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
@@ -1507,14 +1630,14 @@ function join_cache_set(handle, time, msg) {
   }
 }
 
-function handle_call_time(msg, args) {
-  let [handle, time, extras] = args;
-  handle = handle.toLowerCase();
-
-  let call_time = parse_hour_minute(time);
-  if (call_time === null) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${time}\`.`);
+function handle_call_time(msg, handle, call_time, extras) {
+  if (call_time instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
+  if (extras instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid +1 count \`${extras.arg}\`.`);
+  }
+  let time = time_str_short(call_time);
 
   let now = get_now();
   if (call_time < now) {
@@ -1545,8 +1668,8 @@ function handle_call_time(msg, args) {
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
         `Could not find a unique raid for \`[${handle}]\` with call time ` +
-        `\`${time_str(call_time)}\` after hatch and before despawn ` +
-        `(or this time has already been called).`
+        `\`${time}\` after hatch and before despawn (or this time has ` +
+        `already been called).`
       );
     }, function (msg, result) {
       let call_id = result.insertId;
@@ -1592,18 +1715,15 @@ function handle_call_time(msg, args) {
   );
 }
 
-function handle_change_time(msg, args) {
-  let [handle, current_in, to, desired_in] = args;
-  handle = handle.toLowerCase();
-
-  let current = parse_hour_minute(current_in);
-  if (current === null) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${current_in}\`.`);
+function handle_change_time(msg, handle, current, to, desired) {
+  if (current instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${current.arg}\`.`);
   }
-
-  let desired = parse_hour_minute(desired_in);
-  if (desired === null) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${desired_in}\`.`);
+  if (desired instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${desired.arg}\`.`);
+  }
+  if (to !== 'to') {
+    return log_invalid(msg, usage_string('change-time'));
   }
 
   // See comment in handle_call_time().
@@ -1662,32 +1782,15 @@ function handle_change_time(msg, args) {
   );
 }
 
-function handle_join(msg, args) {
-  let [handle, time, extras] = args;
-  handle = handle.toLowerCase();
-
-  let call_time = null;
-
-  let ok = function() {
-    if (!time) return true;
-
-    call_time = parse_hour_minute(time);
-    if (call_time !== null) return true;
-
-    if (!extras) {
-      let matches = time.match(/^(\d+)$/);
-      if (matches !== null) {
-        extras = matches[1];
-        return true;
-      }
-    }
-    return false;
-  }();
-  if (!ok) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${time}\`.`);
+function handle_join(msg, handle, call_time, extras) {
+  if (call_time instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
+  }
+  if (extras instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid +1 count \`${extras.arg}\`.`);
   }
 
-  extras = parseInt(extras || 0);
+  extras = extras || 0;
 
   conn.query(
     'INSERT INTO rsvps (call_id, user_id, extras, maybe) ' +
@@ -1702,7 +1805,7 @@ function handle_join(msg, args) {
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
         `Could not find a single raid time to join for \`[${handle}]\`` +
-        (call_time !== null
+        (!!call_time
           ? ` with called time \`${time_str(call_time)}\`.`
           : '.  Either none or multiple have been called.')
       );
@@ -1737,7 +1840,7 @@ function handle_join(msg, args) {
         }
 
         output += '\n\nTo join this raid time, enter ';
-        if (call_time !== null) {
+        if (!!call_time) {
           output += `\`$join ${handle} ${time_str_short(calls.time)}\`.`;
         } else {
           output += `\`$join ${handle}\`.`;
@@ -1757,16 +1860,9 @@ function handle_join(msg, args) {
   );
 }
 
-function handle_unjoin(msg, args) {
-  let [handle, time] = args;
-  handle = handle.toLowerCase();
-
-  let call_time = null;
-  if (time) {
-    call_time = parse_hour_minute(time);
-    if (call_time === null) {
-      return log_invalid(msg, `Unrecognized HH:MM time \`${time}\`.`);
-    }
+function handle_unjoin(msg, handle, call_time) {
+  if (call_time instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
 
   conn.query(
@@ -1791,39 +1887,33 @@ function handle_unjoin(msg, args) {
 /*
  * Do the work of `request'.
  */
-function handle_request(msg, request, args) {
-  if (args.length === 1 && args[0] === 'help') {
+function handle_request(msg, request, argv) {
+  if (argv.length === 1 && argv[0] === 'help') {
     return handle_help(msg, [request]);
   }
 
-  let params_range = reqs[request].args;
-
-  if (args.length < params_range[0] || args.length > params_range[1]) {
-    return log_invalid(msg, usage_string(request));
-  }
-
   switch (request) {
-    case 'help':      return handle_help(msg, args);
-    case 'set-perm':  return handle_set_perm(msg, args);
-    case 'test':      return handle_test(msg, args);
+    case 'help':      return handle_help(msg, ...argv);
+    case 'set-perm':  return handle_set_perm(msg, ...argv);
+    case 'test':      return handle_test(msg, ...argv);
 
-    case 'gym':       return handle_gym(msg, args);
-    case 'ls-gyms':   return handle_ls_gyms(msg, args);
-    case 'search-gym':  return handle_search_gym(msg, args);
-    case 'add-gym':   return handle_add_gym(msg, args);
-    case 'ls-regions':  return handle_ls_regions(msg, args);
+    case 'gym':       return handle_gym(msg, ...argv);
+    case 'ls-gyms':   return handle_ls_gyms(msg, ...argv);
+    case 'search-gym':  return handle_search_gym(msg, ...argv);
+    case 'add-gym':   return handle_add_gym(msg, ...argv);
+    case 'ls-regions':  return handle_ls_regions(msg, ...argv);
 
-    case 'raid':      return handle_raid(msg, args);
-    case 'ls-raids':  return handle_ls_raids(msg, args);
-    case 'egg':       return handle_egg(msg, args);
-    case 'boss':      return handle_boss(msg, args);
-    case 'update':    return handle_update(msg, args);
-    case 'scrub':     return handle_scrub(msg, args);
+    case 'raid':      return handle_raid(msg, ...argv);
+    case 'ls-raids':  return handle_ls_raids(msg, ...argv);
+    case 'egg':       return handle_egg(msg, ...argv);
+    case 'boss':      return handle_boss(msg, ...argv);
+    case 'update':    return handle_update(msg, ...argv);
+    case 'scrub':     return handle_scrub(msg, ...argv);
 
-    case 'call-time': return handle_call_time(msg, args);
-    case 'change-time': return handle_change_time(msg, args);
-    case 'join':      return handle_join(msg, args);
-    case 'unjoin':    return handle_unjoin(msg, args);
+    case 'call-time': return handle_call_time(msg, ...argv);
+    case 'change-time': return handle_change_time(msg, ...argv);
+    case 'join':      return handle_join(msg, ...argv);
+    case 'unjoin':    return handle_unjoin(msg, ...argv);
     default:
       return log_invalid(msg, `Invalid request \`${request}\`.`);
   }
@@ -1833,28 +1923,23 @@ function handle_request(msg, request, args) {
  * Check whether the user who sent `msg' has the proper permissions to make
  * `request', and make it if so.
  */
-function handle_request_with_check(msg, request, args) {
+function handle_request_with_check(msg, request, argv) {
   let user_id = msg.author.id;
 
   let log = moltres.channels.get(config.log_id);
-  let output = `[${msg.author.tag}] \`\$${request}\` ${args.join(' ')}`;
+  let output = `[${msg.author.tag}] \`\$${request}\` ${argv.join(' ')}`;
   send_quiet(log, output);
-
-  request = req_aliases[request] || request;
-
-  if (!(request in reqs)) {
-    return log_invalid(msg, `Invalid request \`${request}\`.`);
-  }
 
   let req_meta = reqs[request];
 
-  if (!req_meta.dm && msg.channel.type === 'dm') {
+  let is_admin = config.admin_ids.has(user_id);
+
+  if (!is_admin && !req_meta.dm && msg.channel.type === 'dm') {
     return log_invalid(msg, `\`\$${request}\` can't be handled via DM`, true);
   }
 
-  if (config.admin_ids.has(user_id) ||
-      req_meta.perms === Permission.NONE) {
-    return handle_request(msg, request, args);
+  if (is_admin || req_meta.perms === Permission.NONE) {
+    return handle_request(msg, request, argv);
   }
 
   conn.query(
@@ -1867,7 +1952,7 @@ function handle_request_with_check(msg, request, args) {
         (results.length === 0 && req_meta.perms === Permission.BLACKLIST);
 
       if (permitted) {
-        return handle_request(msg, request, args);
+        return handle_request(msg, request, argv);
       }
       return log_invalid(msg,
         `User ${msg.author.tag} does not have permissions for ${request} ` +
@@ -1882,9 +1967,30 @@ function handle_request_with_check(msg, request, args) {
  */
 function process_request(msg) {
   if (msg.content.charAt(0) !== '$') return;
-  let [request, ...rest] = msg.content.substr(1).split(/\s+/);
+  let args = msg.content.substr(1);
 
-  handle_request_with_check(msg, request, rest);
+  let req = null;
+
+  let match = /\s+/.exec(args);
+  if (match === null) {
+    req = args;
+    args = '';
+  } else {
+    req = args.substr(0, match.index);
+    args = args.substr(match.index + match[0].length);
+  }
+
+  req = req_aliases[req] || req;
+  if (!(req in reqs)) {
+    return log_invalid(msg, `Invalid request \`${req}\`.`);
+  }
+
+  let argv = parse_args(args, reqs[req].args);
+  if (argv === null) {
+    return log_invalid(msg, usage_string(req));
+  }
+
+  handle_request_with_check(msg, req, argv);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
