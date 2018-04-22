@@ -148,7 +148,7 @@ const reqs = {
     ],
     examples: {
       'galaxy-sph': 'Get information about **Galaxy: Earth Sphere**.',
-      'Galaxy: Earth Sphere': 'This is an invalid request.',
+      'laxy: Earth Sphe': 'Same as above.',
     },
   },
   'ls-gyms': {
@@ -717,9 +717,10 @@ function mutation_handler(msg, failure = null, success = null) {
  */
 function where_one_gym(handle) {
   return mysql.format(
-    ' gyms.handle LIKE ? AND ' +
-    ' (SELECT COUNT(*) FROM gyms WHERE gyms.handle LIKE ?) = 1 ',
-    [`%${handle}%`, `%${handle}%`]
+    ' (gyms.handle LIKE ? OR gyms.name LIKE ?) AND ' +
+    ' (SELECT COUNT(*) FROM gyms WHERE ' +
+    '   (gyms.handle LIKE ? OR gyms.name LIKE ?)) = 1 ',
+    [`%${handle}%`, `%${handle}%`, `%${handle}%`, `%${handle}%`]
   );
 }
 
