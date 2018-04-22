@@ -390,6 +390,7 @@ const req_aliases = {
   'regions': 'ls-regions',
   'search':      'search-gym',
   'search-gyms': 'search-gym',
+  'call':    'call-time',
 };
 
 const raid_tiers = {
