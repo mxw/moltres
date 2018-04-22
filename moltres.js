@@ -960,6 +960,8 @@ function parse_args(input, spec) {
   };
 
   while (true) {
+    let any_invalid = false;
+
     while (spec_idx < spec.length) {
       let kind = spec[spec_idx++];
 
@@ -991,7 +993,7 @@ function parse_args(input, spec) {
           };
           // Threshold for how far we can push split_end out to.
           vmeta.split_limit = vmeta.split_end +
-            spec.slice(spec_idx).filter(a => a >= 0).length;
+            spec.slice(spec_idx).filter(a => a < 0).length;
         }
 
         // Get the variadic component exactly as the user input it.
@@ -1003,6 +1005,7 @@ function parse_args(input, spec) {
 
       let raw = input.substring(info.start, info.end);
       let arg = parse_one_arg(raw, Math.abs(kind));
+      any_invalid = arg === null;
 
       if (kind >= 0 || spec_idx === spec.length) {
         argv.push(arg !== null ? arg : new InvalidArg(raw));
@@ -1013,6 +1016,8 @@ function parse_args(input, spec) {
         if (arg === null) --split_idx;
       }
     }
+
+    if (any_invalid && backtrack()) continue;
 
     if (split_idx < splits.length) {
       // Too many arguments.
