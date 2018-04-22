@@ -944,44 +944,82 @@ function parse_args(input, spec) {
   let spec_idx = 0;
   let split_idx = 0;
 
-  while (spec_idx < spec.length) {
-    let kind = spec[spec_idx++];
+  let vmeta = null;
 
-    // Too few arguments.
-    if (split_idx >= splits.length) {
-      if (kind < 0) continue;
-      return null;
+  // We're going to jump through a lot of hoops to avoid writing a backtracking
+  // regex matcher to support both * and ?, since we know we have at most one
+  // variadic.
+  let backtrack = function() {
+    if (vmeta !== null && ++vmeta.split_end <= vmeta.split_limit) {
+      argv = argv.slice(0, vmeta.argv_idx);
+      spec_idx = vmeta.spec_idx;
+      split_idx = vmeta.split_idx;
+      return true;
     }
+    return false;
+  };
 
-    let info = splits[split_idx++];
+  while (true) {
+    while (spec_idx < spec.length) {
+      let kind = spec[spec_idx++];
 
-    if (Math.abs(kind) === Arg.VARIADIC) {
-      // Get the variadic component exactly as the user input it.
-      let variadic_split_end = splits.length - (spec.length - spec_idx);
-      if (split_idx < variadic_split_end) {
-        split_idx = variadic_split_end;
+      // Too few arguments.
+      if (split_idx >= splits.length) {
+        // Order of match interpretation priority is:
+        //  - all non-variadic arguments over variadic arguments
+        //  - variadic absorption over un-tracked missing optionals
+        //  - missing optionals
+        if (backtrack()) continue;
+
+        if (kind < 0) continue;
+        return null;
       }
 
-      argv.push(input.substring(info.start, splits[split_idx - 1].end));
-      continue;
+      let info = splits[split_idx++];
+
+      if (Math.abs(kind) === Arg.VARIADIC) {
+        if (vmeta === null) {
+          vmeta = {
+            // Indexes of the variadic argument.
+            argv_idx: argv.length,
+            spec_idx: spec_idx - 1,
+            split_idx: split_idx - 1,
+            // Index of the positional argument after the variadic is matched.
+            // We'll push this out one further if we fail to match as is, until
+            // we run out of optional arguments we could potentially bypass.
+            split_end: splits.length - (spec.length - spec_idx),
+          };
+          // Threshold for how far we can push split_end out to.
+          vmeta.split_limit = vmeta.split_end +
+            spec.slice(spec_idx).filter(a => a >= 0).length;
+        }
+
+        // Get the variadic component exactly as the user input it.
+        split_idx = Math.max(split_idx, vmeta.split_end);
+        let arg = input.substring(info.start, splits[split_idx - 1].end);
+        argv.push(arg);
+        continue;
+      }
+
+      let raw = input.substring(info.start, info.end);
+      let arg = parse_one_arg(raw, Math.abs(kind));
+
+      if (kind >= 0 || spec_idx === spec.length) {
+        argv.push(arg !== null ? arg : new InvalidArg(raw));
+      } else {
+        // If the argument was optional and failed to parse, assume the user
+        // intended to skip it and try to parse it again as the next argument.
+        argv.push(arg);
+        if (arg === null) --split_idx;
+      }
     }
 
-    let raw = input.substring(info.start, info.end);
-    let arg = parse_one_arg(raw, Math.abs(kind));
-
-    if (kind >= 0 || split_idx === splits.length) {
-      argv.push(arg !== null ? arg : new InvalidArg(raw));
-    } else {
-      // If the argument was optional and failed to parse, assume the user
-      // intended to skip it and try to parse it again as the next argument.
-      argv.push(arg);
-      if (arg === null) --split_idx;
+    if (split_idx < splits.length) {
+      // Too many arguments.
+      if (backtrack()) continue;
+      return null;
     }
-  }
-
-  if (split_idx < splits.length) {
-    // Too many arguments.
-    return null;
+    break;
   }
   return argv;
 }
@@ -1047,6 +1085,8 @@ function handle_set_perm(msg, user_tag, req) {
 
 function handle_test(msg, args) {
   args = 'foo \t12 1:42 1:42  t5 tyranitar';
+
+  // Basic matching including variadics.
   console.log(parse_args(args, [
     Arg.STR,
     Arg.INT,
@@ -1059,20 +1099,20 @@ function handle_test(msg, args) {
   console.log(parse_args(args, [Arg.STR, Arg.VARIADIC, Arg.STR]));
   console.log(parse_args(args, [Arg.STR, Arg.STR, Arg.VARIADIC]));
 
+  // Too many or few arguments.
   console.log(parse_args(args, [Arg.STR, Arg.INT, Arg.HOURMIN, Arg.TIMER]));
+  console.log(parse_args(args, [Arg.STR, Arg.INT, Arg.HOURMIN, Arg.TIMER,
+                                Arg.TIER, Arg.BOSS, Arg.STR, Arg.STR]));
+  console.log(parse_args(args, [Arg.STR, Arg.INT, Arg.HOURMIN, Arg.TIMER,
+                                Arg.TIER, Arg.BOSS, Arg.VARIADIC]));
 
-  console.log(parse_args(args, [
-    Arg.STR,
-    Arg.INT,
-    -Arg.INT,
-    Arg.HOURMIN,
-    -Arg.TIER,
-    Arg.TIMER,
-    -Arg.BOSS,
-    Arg.TIER,
-    -Arg.TIMER,
-    Arg.BOSS,
-  ]));
+  // Optionals and variadics.
+  console.log(parse_args(args, [Arg.STR, Arg.INT, -Arg.INT, Arg.HOURMIN,
+                                -Arg.TIER, Arg.TIMER, -Arg.BOSS, Arg.TIER,
+                                -Arg.TIMER, Arg.BOSS]));
+  console.log(parse_args(args, [Arg.STR, Arg.VARIADIC,
+                                -Arg.TIER, Arg.TIMER, -Arg.BOSS, Arg.TIER,
+                                -Arg.TIMER, Arg.BOSS]));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1116,8 +1156,7 @@ coords: <https://maps.google.com/maps?q=${gym.lat},${gym.lng}>`;
 
 function handle_gym(msg, handle) {
   conn.query(
-    'SELECT * FROM gyms WHERE handle LIKE ?',
-    [`%${handle}%`],
+    'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
 
     errwrap(msg, function (msg, results) {
       if (!check_one_gym(msg, handle, results)) return;
@@ -1687,8 +1726,7 @@ function handle_call_time(msg, handle, call_time, extras) {
       // Grab the raid information just for reply purposes.
       conn.query(
         'SELECT * FROM gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
-        '   WHERE handle LIKE ?',
-        [`%${handle}%`],
+        '   WHERE ' + where_one_gym(handle),
 
         errwrap(msg, function (msg, results) {
           if (!check_one_gym(msg, handle, results)) return;
