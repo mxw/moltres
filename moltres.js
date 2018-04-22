@@ -1927,10 +1927,6 @@ function handle_request(msg, request, argv) {
 function handle_request_with_check(msg, request, argv) {
   let user_id = msg.author.id;
 
-  let log = moltres.channels.get(config.log_id);
-  let output = `[${msg.author.tag}] \`\$${request}\` ${argv.join(' ')}`;
-  send_quiet(log, output);
-
   let req_meta = reqs[request];
 
   let is_admin = config.admin_ids.has(user_id);
@@ -1990,6 +1986,10 @@ function process_request(msg) {
   if (argv === null) {
     return log_invalid(msg, usage_string(req));
   }
+
+  let log = moltres.channels.get(config.log_id);
+  let output = `[${msg.author.tag}] \`\$${req}\` ${args}`;
+  send_quiet(log, output);
 
   handle_request_with_check(msg, req, argv);
 }
