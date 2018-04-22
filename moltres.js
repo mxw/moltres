@@ -314,8 +314,8 @@ const reqs = {
   'call-time': {
     perms: Permission.BLACKLIST,
     dm: false,
-    usage: '<gym-handle> <HH:MM> [num-extras]',
-    args: [Arg.STR, Arg.HOURMIN, -Arg.INT],
+    usage: '<gym-handle-or-name> <HH:MM> [num-extras]',
+    args: [Arg.VARIADIC, Arg.HOURMIN, -Arg.INT],
     desc: 'Call a time for a raid.',
     detail: [
       'Setting multiple call times is allowed (and encouraged!), but make',
@@ -333,8 +333,8 @@ const reqs = {
   'change-time': {
     perms: Permission.BLACKLIST,
     dm: false,
-    usage: '<gym-handle> <current-HH:MM> to <desired-HH:MM>',
-    args: [Arg.STR, Arg.HOURMIN, Arg.STR, Arg.HOURMIN],
+    usage: '<gym-handle-or-name> <current-HH:MM> to <desired-HH:MM>',
+    args: [Arg.VARIADIC, Arg.HOURMIN, Arg.STR, Arg.HOURMIN],
     desc: 'Change a called time for a raid.',
     detail: [
       'Make sure to include the `to`; it\'s just there to enforce the right',
@@ -350,8 +350,8 @@ const reqs = {
   'join': {
     perms: Permission.NONE,
     dm: false,
-    usage: '<gym-handle> [HH:MM] [num-extras]',
-    args: [Arg.STR, -Arg.HOURMIN, -Arg.INT],
+    usage: '<gym-handle-or-name> [HH:MM] [num-extras]',
+    args: [Arg.VARIADIC, -Arg.HOURMIN, -Arg.INT],
     desc: 'Join a called raid time.',
     detail: [
       'You don\'t need to specify the time _unless_ the raid has multiple',
@@ -369,8 +369,8 @@ const reqs = {
   'unjoin': {
     perms: Permission.NONE,
     dm: false,
-    usage: '<gym-handle> [HH:MM]',
-    args: [Arg.STR, -Arg.HOURMIN],
+    usage: '<gym-handle-or-name> [HH:MM]',
+    args: [Arg.VARIADIC, -Arg.HOURMIN],
     desc: 'Back out of a scheduled raid.',
     detail: [
       'As with `$join`, you don\'t need to specify the time _unless_ the',
