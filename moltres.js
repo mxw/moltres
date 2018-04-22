@@ -969,12 +969,15 @@ function parse_args(input, spec) {
       // Too few arguments.
       if (split_idx >= splits.length) {
         // Order of match interpretation priority is:
-        //  - all non-variadic arguments over variadic arguments
-        //  - variadic absorption over un-tracked missing optionals
-        //  - missing optionals
-        if (backtrack()) continue;
-
+        //    1/ all non-variadic arguments over variadic arguments
+        //    2/ variadic absorption over missing optionals
+        //    3/ missing optionals
+        //
+        // The order of 2 and 3 is handled by our non-greedy variadic
+        // absorption logic below, so we need to prefer passing on missing
+        // optionals here.
         if (kind < 0) continue;
+        if (backtrack()) continue;
         return null;
       }
 
@@ -1006,7 +1009,7 @@ function parse_args(input, spec) {
 
       let raw = input.substring(info.start, info.end);
       let arg = parse_one_arg(raw, Math.abs(kind));
-      any_invalid = arg === null;
+      any_invalid = kind >= 0 && arg === null;
 
       if (kind >= 0 || spec_idx === spec.length) {
         argv.push(arg !== null ? arg : new InvalidArg(raw));
