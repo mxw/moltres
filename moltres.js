@@ -393,6 +393,10 @@ const req_aliases = {
   'call':    'call-time',
 };
 
+const boss_aliases = {
+  ttar: 'tyranitar',
+};
+
 const raid_tiers = {
   bulbasaur: 1,
   charmander: 1,
@@ -900,6 +904,7 @@ function parse_one_arg(input, kind) {
       return parse_tier(input);
     case Arg.BOSS:
       input = input.toLowerCase();
+      input = boss_aliases[input] || input;
       return input in raid_tiers ? input : null;
     default: break;
   }
