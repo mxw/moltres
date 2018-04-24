@@ -1256,8 +1256,6 @@ function handle_add_gym(msg, handle, region_in, lat, lng, name) {
     return log_invalid(msg, `Invalid region \`${region_in}\`.`);
   }
 
-  name = name.join(' ');
-
   conn.query(
     'INSERT INTO gyms SET ?',
     { handle: handle,
