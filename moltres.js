@@ -2027,6 +2027,10 @@ function process_request(msg) {
     args = args.substr(match.index + match[0].length);
   }
 
+  let log = moltres.channels.get(config.log_id);
+  let output = `[${msg.author.tag}] \`\$${req}\` ${args}`;
+  send_quiet(log, output);
+
   req = req_aliases[req] || req;
   if (!(req in reqs)) {
     return log_invalid(msg, `Invalid request \`${req}\`.`);
@@ -2036,10 +2040,6 @@ function process_request(msg) {
   if (argv === null) {
     return log_invalid(msg, usage_string(req));
   }
-
-  let log = moltres.channels.get(config.log_id);
-  let output = `[${msg.author.tag}] \`\$${req}\` ${args}`;
-  send_quiet(log, output);
 
   handle_request_with_check(msg, req, argv);
 }
