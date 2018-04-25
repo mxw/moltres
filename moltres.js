@@ -6,6 +6,7 @@
 const Discord = require('discord.js');
 const mysql = require('mysql');
 const config = require('./config.js');
+const utils = require('./utils.js');
 
 const moltres = new Discord.Client();
 
@@ -63,15 +64,8 @@ const Permission = {
   BLACKLIST: 3,
 };
 
-const Arg = {
-  STR: 1,
-  INT: 2,
-  VARIADIC: 3,
-  HOURMIN: 4,
-  TIMER: 5,
-  TIER: 6,
-  BOSS: 7,
-};
+const Arg = utils.Arg;
+const InvalidArg = utils.InvalidArg;
 
 /*
  * Order of display for $help.
@@ -877,13 +871,6 @@ function parse_tier(tier) {
 }
 
 /*
- * Invalid argument object.
- */
-function InvalidArg(arg) {
-  this.arg = arg;
-}
-
-/*
  * Parse a single argument `input' according to `kind'.
  */
 function parse_one_arg(input, kind) {
@@ -966,7 +953,7 @@ function parse_args(input, spec) {
   };
 
   while (true) {
-    let any_invalid = false;
+    let num_invalid = 0;
 
     while (spec_idx < spec.length) {
       let kind = spec[spec_idx++];
@@ -981,7 +968,10 @@ function parse_args(input, spec) {
         // The order of 2 and 3 is handled by our non-greedy variadic
         // absorption logic below, so we need to prefer passing on missing
         // optionals here.
-        if (kind < 0) continue;
+        if (kind < 0) {
+          argv.push(null);
+          continue;
+        }
         if (backtrack()) continue;
         return null;
       }
@@ -1000,6 +990,7 @@ function parse_args(input, spec) {
             // we run out of optional arguments we could potentially bypass.
             split_end: splits.length - (spec.length - spec_idx),
           };
+          vmeta.split_end_orig = vmeta.split_end;
           // Threshold for how far we can push split_end out to.
           vmeta.split_limit = vmeta.split_end +
             spec.slice(spec_idx).filter(a => a < 0).length;
@@ -1014,7 +1005,7 @@ function parse_args(input, spec) {
 
       let raw = input.substring(info.start, info.end);
       let arg = parse_one_arg(raw, Math.abs(kind));
-      any_invalid = kind >= 0 && arg === null;
+      num_invalid += arg === null;
 
       if (kind >= 0 || spec_idx === spec.length) {
         argv.push(arg !== null ? arg : new InvalidArg(raw));
@@ -1026,7 +1017,11 @@ function parse_args(input, spec) {
       }
     }
 
-    if (any_invalid && backtrack()) continue;
+    if (vmeta !== null &&
+        num_invalid > vmeta.split_end - vmeta.split_end_orig
+        && backtrack()) {
+      continue;
+    }
 
     if (split_idx < splits.length) {
       // Too many arguments.
@@ -1098,35 +1093,47 @@ function handle_set_perm(msg, user_tag, req) {
 }
 
 function handle_test(msg, args) {
-  args = 'foo \t12 1:42 1:42  t5 tyranitar';
+  let tests = require('./tests.js');
 
-  // Basic matching including variadics.
-  console.log(parse_args(args, [
-    Arg.STR,
-    Arg.INT,
-    Arg.HOURMIN,
-    Arg.TIMER,
-    Arg.TIER,
-    Arg.BOSS,
-  ]));
-  console.log(parse_args(args, [Arg.VARIADIC, Arg.STR, Arg.STR]));
-  console.log(parse_args(args, [Arg.STR, Arg.VARIADIC, Arg.STR]));
-  console.log(parse_args(args, [Arg.STR, Arg.STR, Arg.VARIADIC]));
+  let argv_equals = function(l, r) {
+    if (r === null) return l === null;
+    if (l.length !== r.length) return false;
 
-  // Too many or few arguments.
-  console.log(parse_args(args, [Arg.STR, Arg.INT, Arg.HOURMIN, Arg.TIMER]));
-  console.log(parse_args(args, [Arg.STR, Arg.INT, Arg.HOURMIN, Arg.TIMER,
-                                Arg.TIER, Arg.BOSS, Arg.STR, Arg.STR]));
-  console.log(parse_args(args, [Arg.STR, Arg.INT, Arg.HOURMIN, Arg.TIMER,
-                                Arg.TIER, Arg.BOSS, Arg.VARIADIC]));
+    for (let i = 0; i < l.length; ++i) {
+      if (l[i] === r[i]) continue;
 
-  // Optionals and variadics.
-  console.log(parse_args(args, [Arg.STR, Arg.INT, -Arg.INT, Arg.HOURMIN,
-                                -Arg.TIER, Arg.TIMER, -Arg.BOSS, Arg.TIER,
-                                -Arg.TIMER, Arg.BOSS]));
-  console.log(parse_args(args, [Arg.STR, Arg.VARIADIC,
-                                -Arg.TIER, Arg.TIMER, -Arg.BOSS, Arg.TIER,
-                                -Arg.TIMER, Arg.BOSS]));
+      if (l[i] instanceof Date) {
+        let d = parse_hour_minute(r[i]);
+        if (l[i].getTime() === d.getTime()) continue;
+      }
+      if (l[i].mins && l[i].secs &&
+          l[i].mins === r[i].mins &&
+          l[i].secs === r[i].secs) {
+        continue;
+      }
+      if (l[i] instanceof InvalidArg &&
+          r[i] instanceof InvalidArg &&
+          l[i].arg === r[i].arg) {
+        continue;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  for (let test of tests.parse_args) {
+    let spec = test.spec;
+    if (typeof spec === 'string') spec = reqs[spec].args;
+
+    let result = parse_args(test.args, spec);
+    console.assert(
+      argv_equals(result, test.expect),
+      `parse_args(): failed on input ${test.args} with ${spec}
+  expected: ${test.expect}
+  got: ${result}`
+    );
+  }
+  console.log('$test: parse_args() tests passed.');
 }
 
 ///////////////////////////////////////////////////////////////////////////////
