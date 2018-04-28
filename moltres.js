@@ -1468,6 +1468,9 @@ function handle_ls_raids(msg, region) {
         : `despawns at ${time_str(raids.despawn)}`
 
       output += `\n\`[${handle}]\` **${boss}** ${timer_str}`;
+      if (is_meta) {
+        output += ` — _${gyms.region}_`;
+      }
 
       if (calls.time !== null) {
         let times = rows_by_raid[handle]
