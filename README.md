@@ -147,6 +147,18 @@ INSERT queries, or using the `$add-gym` command, e.g.,
 
     $add-gym galaxy-sphere kendall 42.362374 -71.084384 Galaxy: Earth Sphere
 
+Contribution
+------------
+
+Feel free to submit issues or PRs for any bugs or feature requests you may
+have.  Please be understanding of rejected feature requests---I am very
+intentional about what capabilities to support with a system like this that
+integrates with a social-first chat application.
+
+If you're interested in Moltres development or have support questions, please
+feel free to ask in [Victory Road](victory-road), Moltres's home server.
+
 
 [vob]: https://www.valorofboston.com/
 [discord-bot]: https://github.com/reactiflux/discord-irc/wiki/Creating-a-discord-bot-&-getting-a-token
+[victory-road]: https://discord.gg/hTaVwwr
