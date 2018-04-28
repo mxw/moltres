@@ -39,7 +39,7 @@ create five tables: `gyms`, `raids`, `calls`, `rsvps`, and `permissions`:
       `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
       `handle` varchar(64) NOT NULL,
       `name` varchar(256) NOT NULL,
-      `region` bigint(20) unsigned NOT NULL,
+      `region` varchar(256) unsigned NOT NULL,
       `lat` decimal(10,8) NOT NULL,
       `lng` decimal(11,8) NOT NULL,
       `silent` tinyint(1) NOT NULL DEFAULT '0',
