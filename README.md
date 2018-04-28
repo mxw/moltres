@@ -85,7 +85,16 @@ create five tables: `gyms`, `raids`, `calls`, `rsvps`, and `permissions`:
       PRIMARY KEY (`cmd`,`user_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=latin1
 
-Create a Discord bot account by following [these steps](discord-bot).
+Create a Discord bot account by following [these steps](discord-bot).  When
+adding Moltres to your server, you must grant it the following permissions in
+the channels in which it's active:
+- Read Messages
+- Send Messages
+- Manage Messages
+- Embed Links
+- Read Message History
+- Use External Emojis
+- Add Reactions
 
 Finally, add a file `config.js` in the repo's root directory with the following
 structure:
