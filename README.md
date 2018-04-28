@@ -5,8 +5,8 @@ Moltres is a Discord bot for reporting, coordinating, and joining Pokemon Go
 raids.  It was originally designed and written for [Valor of Boston](vob).
 
 Moltres is location-agnostic and can be set up for use in any region.  It
-assumes that its host server is outfitted with taggable regional roles, and it
-uses these roles to organize gyms and notify users of raid calls.
+performs best when its host server is outfitted with taggable regional roles,
+so that it can use these roles to organize gyms and notify users of raid calls.
 
 Setup
 -----
@@ -107,6 +107,10 @@ structure:
         // Array of Discord IDs of text channels Moltres should watch.
       ]),
       log_id: 'Discord ID for the designated log channel',
+
+      regions: {
+        // Map from string region names to region role string IDs.
+      },
     };
 
 Usage

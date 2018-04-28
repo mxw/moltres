@@ -1171,7 +1171,7 @@ function gym_name(gym) {
 function gym_row_to_string(gym) {
   return `\`[${gym.handle}]\`
 name: **${gym.name}**
-region: ${guild().roles.get(gym.region).name}
+region: ${gym.region}
 coords: <https://maps.google.com/maps?q=${gym.lat},${gym.lng}>`;
 }
 
@@ -1188,25 +1188,26 @@ function handle_gym(msg, handle) {
   );
 }
 
-function handle_ls_gyms(msg, role_name) {
-  let role = get_role(role_name);
-  if (role === null) {
-    return log_invalid(msg, `Invalid region name \`${role_name}\`.`);
-  }
-
+function handle_ls_gyms(msg, region) {
   conn.query(
-    'SELECT * FROM gyms WHERE region = ?', [role.id],
+    'SELECT * FROM gyms WHERE region LIKE ?', [`${region}%`],
 
     errwrap(msg, function (msg, results) {
       if (results.length === 0) {
-        return chain_reaccs(msg, 'no_entry_sign');
+        return log_invalid(msg, `Invalid region name \`${region}\`.`);
       }
 
-      let output = `Gyms in **${role.name}**:\n`;
+      let out_region = results[0].region;
+      let output = '';
 
       for (let gym of results) {
+        if (gym.region !== out_region) {
+          return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
+        }
         output += `\n\`[${gym.handle}]\` ${gym.name}`;
       }
+      output = `Gyms in **${out_region}**:\n` + output;
+
       send_quiet(msg.channel, output);
     })
   );
@@ -1228,39 +1229,18 @@ function handle_search_gym(msg, name) {
 
       let output = `Gyms matching \`${name}\`:\n`;
       for (let gym of results) {
-        let role = guild().roles.get(gym.region);
-        let role_name = role ? role.name : '(unknown region)';
-        output += `\n\`[${gym.handle}]\` ${gym.name} — _${role_name}_`;
+        output += `\n\`[${gym.handle}]\` ${gym.name} — _${gym.region}_`;
       }
       send_quiet(msg.channel, output);
     })
   );
 }
 
-function handle_add_gym(msg, handle, region_in, lat, lng, name) {
+function handle_add_gym(msg, handle, region, lat, lng, name) {
   handle = handle.toLowerCase();
 
   if (lat.charAt(lat.length - 1) === ',') {
     lat = lat.substr(0, lat.length - 1);
-  }
-
-  let region = function() {
-    // Maybe it's a mention.
-    if (region_in.match(Discord.MessageMentions.ROLES_PATTERN) &&
-        msg.mentions.roles.size === 1) {
-      return msg.mentions.roles.first().id;
-    }
-
-    // Maybe it's a prefix.
-    let region = get_role(region_in.replace(/-/g, ' '));
-    if (region) return region.id;
-
-    // Maybe it's an ID.
-    region = guild().roles.get(region_in);
-    return region ? region.id : null;
-  }();
-  if (region === null) {
-    return log_invalid(msg, `Invalid region \`${region_in}\`.`);
   }
 
   conn.query(
@@ -1282,12 +1262,8 @@ function handle_ls_regions(msg) {
         return send_quiet(msg.channel, 'No gyms have been registered.');
       }
 
-      let output = 'List of **regions** with **registered gyms**:\n';
-      for (let gym of results) {
-        let role = guild().roles.get(gym.region);
-        if (!role) continue;
-        output += `\n${role.name}`;
-      }
+      let output = 'List of **regions** with **registered gyms**:\n\n' +
+                   results.map(gym => gym.region).join('\n');
       send_quiet(msg.channel, output);
     })
   );
@@ -1415,12 +1391,7 @@ hatch: ${time_str(hatch)}`;
   }));
 }
 
-function handle_ls_raids(msg, role_name) {
-  let role = get_role(role_name);
-  if (role === null) {
-    return log_invalid(msg, `Invalid region name \`${role_name}\`.`);
-  }
-
+function handle_ls_raids(msg, region) {
   let now = get_now();
 
   conn.query({
@@ -1428,22 +1399,27 @@ function handle_ls_raids(msg, role_name) {
       'SELECT * FROM gyms ' +
       '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
       '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
-      'WHERE gyms.region = ? AND raids.despawn > ?',
-    values: [role.id, now],
+      'WHERE gyms.region LIKE ? AND raids.despawn > ?',
+    values: [`${region}%`, now],
     nestTables: true,
   }, errwrap(msg, function (msg, results) {
     if (results.length === 0) {
       return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
     }
 
+    let out_region = results[0].gyms.region;
     let rows_by_raid = {};
+
     for (let row of results) {
+      if (row.gyms.region !== out_region) {
+        return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
+      }
       let handle = row.gyms.handle;
       rows_by_raid[handle] = rows_by_raid[handle] || [];
       rows_by_raid[handle].push(row);
     }
 
-    let output = `Active raids in **${role.name}**:\n`;
+    let output = `Active raids in **${out_region}**:\n`;
 
     for (let handle in rows_by_raid) {
       let [{gyms, raids, calls}] = rows_by_raid[handle];
@@ -1751,15 +1727,18 @@ function handle_call_time(msg, handle, call_time, extras) {
           if (!check_one_gym(msg, handle, results)) return;
           let [raid] = results;
 
-          let role = msg.guild.roles.get(raid.region);
-          if (!role) {
-            return log_error(msg, `Malformed gym entry for ${raid.handle}.`);
-          }
+          let region_str = function() {
+            let role_id = config.regions[raid.region];
+            if (!role_id) return raid.region;
 
-          let role_str = raid.silent ? role.name : role.toString();
+            let role = msg.guild.roles.get(role_id);
+            if (!role) return raid.region;
+
+            return raid.silent ? role.name : role.toString();
+          }();
 
           let output = get_emoji('clock230') + ' ' +
-            `${role_str} **${fmt_tier_boss(raid)}** raid ` +
+            `${region_str} **${fmt_tier_boss(raid)}** raid ` +
             `at ${gym_name(raid)} ` +
             `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
             `\n\nTo join this raid time, enter ` +
