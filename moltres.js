@@ -185,13 +185,14 @@ const reqs = {
     args: [Arg.STR, Arg.STR, Arg.STR, Arg.STR, Arg.VARIADIC],
     desc: 'Add a new gym to the database.',
     detail: [
-      'The region can be either an @-tag, a numeric Discord ID, or a',
-      'uniquely-identifying prefix string of the region role name. If a',
-      'string name is used, it must use hyphens instead of whitespace (e.g.,',
-      '`kendall-square` or `Kendall-Square` instead of `Kendall Square`).' +
-      '\n\nThe recommended method for adding gyms is to copy information',
-      'over from <http://www.massmwcreaturemap.com/>. Note that the latitude',
-      'argument is allowed to contain a trailing comma, for ease of copying.',
+      'The region name can be any string, but it must be free of whitespace. ',
+      'Hyphens in the region name will be replaced by spaces.  Note also that',
+      'no verification is performed to check that a region name matches that',
+      'of any existing region, so make sure you use the right capitalization',
+      'and avoid typos.\n\nThe recommended method for adding gyms is to copy',
+      'information over from <http://www.massmwcreaturemap.com/>.  Note that',
+      'the latitude argument is allowed to contain a trailing comma, for ease',
+      'of copying.',
     ],
     examples: {
     },
@@ -1242,6 +1243,8 @@ function handle_add_gym(msg, handle, region, lat, lng, name) {
   if (lat.charAt(lat.length - 1) === ',') {
     lat = lat.substr(0, lat.length - 1);
   }
+
+  region = region.replace(/-/g, ' ');
 
   conn.query(
     'INSERT INTO gyms SET ?',
