@@ -726,6 +726,33 @@ function where_one_gym(handle) {
 }
 
 /*
+ * Get a SQL WHERE clause fragment for selecting a region or all regions
+ * belonging to a metaregion.
+ */
+function where_region(region) {
+  let metanames = Object.keys(config.metaregions).filter(
+    name => name.toLowerCase().startsWith(region.toLowerCase())
+  );
+
+  if (metanames.length !== 1) {
+    return {
+      meta: null,
+      sql: mysql.format('gyms.region LIKE ?', [`${region}%`]),
+    };
+  }
+
+  let regions = config.metaregions[metanames[0]]
+  let sql = regions
+    .map(r => mysql.format('gyms.region LIKE ?', [`${r}%`]))
+    .join(' OR ');
+
+  return {
+    meta: metanames[0],
+    sql: `(${sql})`,
+  };
+}
+
+/*
  * Get a SQL WHERE clause fragment for selecting a specific call time.
  *
  * If `time' is null, instead we select for a single unique time.
@@ -1191,19 +1218,22 @@ function handle_gym(msg, handle) {
 }
 
 function handle_ls_gyms(msg, region) {
+  let region_clause = where_region(region);
+  let is_meta = region_clause.meta !== null;
+
   conn.query(
-    'SELECT * FROM gyms WHERE region LIKE ?', [`${region}%`],
+    'SELECT * FROM gyms WHERE ' + region_clause.sql,
 
     errwrap(msg, function (msg, results) {
       if (results.length === 0) {
         return log_invalid(msg, `Invalid region name \`${region}\`.`);
       }
 
-      let out_region = results[0].region;
+      let out_region = is_meta ? region_clause.meta : results[0].region;
       let output = '';
 
       for (let gym of results) {
-        if (gym.region !== out_region) {
+        if (!is_meta && gym.region !== out_region) {
           return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
         }
         output += `\n\`[${gym.handle}]\` ${gym.name}`;
@@ -1397,25 +1427,28 @@ hatch: ${time_str(hatch)}`;
 
 function handle_ls_raids(msg, region) {
   let now = get_now();
+  let region_clause = where_region(region);
+  let is_meta = region_clause.meta !== null;
 
   conn.query({
     sql:
       'SELECT * FROM gyms ' +
       '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
       '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
-      'WHERE gyms.region LIKE ? AND raids.despawn > ?',
-    values: [`${region}%`, now],
+      'WHERE ' + region_clause.sql +
+      '   AND raids.despawn > ?',
+    values: [now],
     nestTables: true,
   }, errwrap(msg, function (msg, results) {
     if (results.length === 0) {
       return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
     }
 
-    let out_region = results[0].gyms.region;
+    let out_region = is_meta ? region_clause.meta : results[0].gyms.region;
     let rows_by_raid = {};
 
     for (let row of results) {
-      if (row.gyms.region !== out_region) {
+      if (!is_meta && row.gyms.region !== out_region) {
         return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
       }
       let handle = row.gyms.handle;

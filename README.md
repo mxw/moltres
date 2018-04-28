@@ -120,6 +120,9 @@ structure:
       regions: {
         // Map from string region names to region role string IDs.
       },
+      metaregions: {
+        // Map from string meta-region names to array of constituent regions.
+      },
 
       emoji: {
         // Map from Moltres's emoji names to custom emoji names available on
