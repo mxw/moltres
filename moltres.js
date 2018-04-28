@@ -1436,7 +1436,8 @@ function handle_ls_raids(msg, region) {
       '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
       '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
       'WHERE ' + region_clause.sql +
-      '   AND raids.despawn > ?',
+      '   AND raids.despawn > ?' +
+      'ORDER BY gyms.region',
     values: [now],
     nestTables: true,
   }, errwrap(msg, function (msg, results) {
