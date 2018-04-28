@@ -120,6 +120,18 @@ structure:
       regions: {
         // Map from string region names to region role string IDs.
       },
+
+      emoji: {
+        // Map from Moltres's emoji names to custom emoji names available on
+        // any of its servers.
+        approved: '...',
+        banned: '...',
+        dealwithit: '...',
+        valor: '...',
+        mystic: '...',
+        instinct: '...',
+        raidegg: '...',
+      }
     };
 
 Usage

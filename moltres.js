@@ -541,7 +541,8 @@ const emoji_by_name = {
  * Get an emoji by name.
  */
 function get_emoji(name) {
-  return emoji_by_name[name] || moltres.emojis.find('name', name);
+  return emoji_by_name[name] ||
+         moltres.emojis.find('name', config.emoji[name] || name);
 }
 
 /*
@@ -1310,7 +1311,7 @@ function handle_raid(msg, handle) {
         [raids.gym_id],
         errwrap(msg)
       );
-      return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
+      return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
     }
 
     let hatch = hatch_from_despawn(raids.despawn);
@@ -1407,7 +1408,7 @@ function handle_ls_raids(msg, region) {
     nestTables: true,
   }, errwrap(msg, function (msg, results) {
     if (results.length === 0) {
-      return chain_reaccs(msg, 'no_entry_sign', 'RaidEgg');
+      return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
     }
 
     let out_region = results[0].gyms.region;
@@ -1484,7 +1485,7 @@ function handle_report(msg, handle, tier, boss, timer) {
 
       if (boss === null) {
         let hatch = hatch_from_despawn(despawn);
-        output = `${get_emoji('RaidEgg')} **T${tier} egg** ` +
+        output = `${get_emoji('raidegg')} **T${tier} egg** ` +
                  `hatches at \`[${handle}]\` at ${time_str(hatch)} `;
       } else {
         let raid = {tier: tier, boss: boss};
