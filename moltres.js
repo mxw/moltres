@@ -380,12 +380,19 @@ const reqs = {
 };
 
 const req_aliases = {
-  'gyms':    'ls-gyms',
-  'raids':   'ls-raids',
-  'regions': 'ls-regions',
+  'g':        'gym',
+  'gs':       'ls-gyms',
+  'gyms':     'ls-gyms',
+  'r':        'raid',
+  'rs':       'ls-raids',
+  'raids':    'ls-raids',
+  'e':        'egg',
+  'b':        'boss',
+  'u':        'update',
+  'regions':  'ls-regions',
   'search':      'search-gym',
   'search-gyms': 'search-gym',
-  'call':    'call-time',
+  'call':     'call-time',
 };
 
 const boss_aliases = {
