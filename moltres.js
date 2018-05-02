@@ -1501,6 +1501,9 @@ function handle_report(msg, handle, tier, boss, timer) {
   if (tier instanceof InvalidArg) {
     return log_invalid(msg, `Invalid raid tier \`${tier.arg}\`.`);
   }
+  if (boss instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid raid boss \`${boss.arg}\`.`);
+  }
   if (timer instanceof InvalidArg) {
     return log_invalid(msg, `Invalid MM:SS timer \`${timer.arg}\`.`);
   }
