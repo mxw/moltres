@@ -452,7 +452,7 @@ const raid_tiers = {
   tyranitar: 4,
   walrein: 4,
 
-  latios: 5,
+  latias: 5,
 };
 
 const bosses_for_tier = function() {
