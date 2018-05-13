@@ -29,9 +29,10 @@ Install MySQL, e.g.,
     sudo apt-get install mysql-server
 
 and create a database `moltresdb` for use by a user named `moltres`. Then, 
-create five tables: `gyms`, `raids`, `calls`, `rsvps`, and `permissions`. The 
-script for this is in [setup/moltres.sql], which you can run at the command 
-line with:
+create five tables: `gyms`, `raids`, `calls`, `rsvps`, and `permissions`. 
+
+The script for this is in [setup/moltres.sql](setup/moltres.sql). Edit the
+password to something you want, then run at the command line with:
 
     mysql -u root -p < setup/moltres.sql
     
