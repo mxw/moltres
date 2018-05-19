@@ -130,6 +130,7 @@ structure:
         approved: '...',
         banned: '...',
         dealwithit: '...',
+        team: '...',
         valor: '...',
         mystic: '...',
         instinct: '...',

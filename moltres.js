@@ -1083,7 +1083,7 @@ function handle_help(msg, req) {
   let out = null;
 
   if (req === null) {
-    out = get_emoji('valor') +
+    out = get_emoji('team') +
           '  Please choose your request from the following:\n\n';
     for (let req of req_order) {
       if (req !== null) {
@@ -1923,7 +1923,7 @@ function handle_join(msg, handle, call_time, extras) {
 
         raiders = raiders.filter(user => user.id != msg.author.id);
 
-        let output = get_emoji('valor') + '  ' +
+        let output = get_emoji('team') + '  ' +
           `${msg.author} is joining at ${time_str(calls.time)} ` +
           `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
 
