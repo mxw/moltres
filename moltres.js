@@ -452,6 +452,7 @@ const raid_tiers = {
   tyranitar: 4,
   walrein: 4,
 
+  'ho-oh': 5,
   latias: 5,
 };
 
