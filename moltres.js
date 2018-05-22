@@ -1923,8 +1923,10 @@ function handle_join(msg, handle, call_time, extras) {
 
         raiders = raiders.filter(user => user.id != msg.author.id);
 
+        let joining_str = extras > 0 ? `joining with +${extras}` : 'joining';
+
         let output = get_emoji('team') + '  ' +
-          `${msg.author} is joining at ${time_str(calls.time)} ` +
+          `${msg.author} is ${joining_str} at ${time_str(calls.time)} ` +
           `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
 
         if (raiders.length !== 0) {
