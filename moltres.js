@@ -294,7 +294,7 @@ const reqs = {
     },
   },
   'scrub': {
-    perms: Permission.WHITELIST,
+    perms: Permission.BLACKLIST,
     dm: false,
     usage: '<gym-handle-or-name>',
     args: [Arg.VARIADIC],
