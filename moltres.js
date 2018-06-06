@@ -1204,7 +1204,9 @@ function check_one_gym(msg, handle, results) {
  * Canonical display of a gym's name when we have a whole table row.
  */
 function gym_name(gym) {
-  return `\`[${gym.handle}]\` **${gym.name}**`;
+  let name = `\`[${gym.handle}]\` **${gym.name}**`;
+  if (gym.ex) name += ' (EX!)';
+  return name;
 }
 
 /*
@@ -1212,7 +1214,7 @@ function gym_name(gym) {
  */
 function gym_row_to_string(gym) {
   return `\`[${gym.handle}]\`
-name: **${gym.name}**
+name: **${gym.name}**${gym.ex ? ' (EX!)' : ''}
 region: ${gym.region}
 coords: <https://maps.google.com/maps?q=${gym.lat},${gym.lng}>`;
 }
@@ -1250,6 +1252,7 @@ function handle_ls_gyms(msg, region) {
           return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
         }
         output += `\n\`[${gym.handle}]\` ${gym.name}`;
+        if (gym.ex) output += ' — (EX!)';
       }
       output = `Gyms in **${out_region}**:\n` + output;
 

@@ -42,6 +42,7 @@ create five tables: `gyms`, `raids`, `calls`, `rsvps`, and `permissions`:
       `region` varchar(256) unsigned NOT NULL,
       `lat` decimal(10,8) NOT NULL,
       `lng` decimal(11,8) NOT NULL,
+      `ex` tinyint(1) NOT NULL DEFAULT '0',
       `silent` tinyint(1) NOT NULL DEFAULT '0',
       PRIMARY KEY (`id`),
       UNIQUE KEY `handle` (`handle`),
