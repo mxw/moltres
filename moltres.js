@@ -453,7 +453,6 @@ const raid_tiers = {
   walrein: 4,
 
   'ho-oh': 5,
-  latias: 5,
 };
 
 const bosses_for_tier = function() {
