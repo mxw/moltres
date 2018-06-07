@@ -405,22 +405,27 @@ const raid_tiers = {
   squirtle: 1,
   magikarp: 1,
   duskull: 1,
+  omanyte: 1,
+  shellder: 1,
   shuppet: 1,
   snorunt: 1,
   swablu: 1,
   wailmer: 1,
 
   combusken: 2,
+  croconaw: 2,
   electabuzz: 2,
   exeggutor: 2,
   lickitung: 2,
   manectric: 2,
+  marshtomp: 2,
   mawile: 2,
   misdreavus: 2,
   muk: 2,
   primeape: 2,
   sableye: 2,
   sneasel: 2,
+  tentacruel: 2,
   venomoth: 2,
   weezing: 2,
 
@@ -440,6 +445,9 @@ const raid_tiers = {
   piloswine: 3,
   pinsir: 3,
   scyther: 3,
+  sharpedo: 3,
+  starmie: 3,
+  vaporeon: 3,
 
   absol: 4,
   aggron: 4,
@@ -452,7 +460,7 @@ const raid_tiers = {
   tyranitar: 4,
   walrein: 4,
 
-  'ho-oh': 5,
+  kyogre: 5,
 };
 
 const bosses_for_tier = function() {
