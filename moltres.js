@@ -493,6 +493,13 @@ function guild() {
 }
 
 /*
+ * Whether `user' is a member of `guild'.
+ */
+function is_member(guild, user) {
+  return guild.member(user) !== null;
+}
+
+/*
  * Wrapper around send() that chains messages and swallows exceptions.
  */
 function send_quiet_impl(channel, ...contents) {
@@ -1389,7 +1396,7 @@ hatch: ${time_str(hatch)}`;
       output += `\nlast known team: ${get_emoji(team)}`;
     }
 
-    if (calls.time !== null) {
+    if (calls.time !== null && is_member(guild(), msg.author)) {
       output += '\n\ncall time(s):';
 
       let times = [];
@@ -1497,7 +1504,7 @@ function handle_ls_raids(msg, region) {
         output += ` — _${gyms.region}_`;
       }
 
-      if (calls.time !== null) {
+      if (calls.time !== null && is_member(guild(), msg.author)) {
         let times = rows_by_raid[handle]
           .map(row => time_str(row.calls.time))
           .join(', ');
