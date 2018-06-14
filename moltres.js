@@ -226,13 +226,14 @@ const reqs = {
     perms: Permission.NONE,
     dm: true,
     usage: '<region-name>',
-    args: [Arg.VARIADIC],
+    args: [-Arg.VARIADIC],
     desc: 'List all active raids in a region.',
     detail: [
       'The region name should be any valid region role (without the `@`).',
       'Case doesn\'t matter, and uniquely-identifying prefixes are allowed,',
       'so, e.g., `harvard` will work, but `boston` will not (but `boston',
-      'common` is fine).  See `$help ls-gyms` for examples.',
+      'common` is fine).  See `$help ls-gyms` for examples.\n\nIf no region',
+      'is provided, this lists all known raids.',
     ],
     examples: {
     },
@@ -1458,8 +1459,14 @@ hatch: ${time_str(hatch)}`;
 
 function handle_ls_raids(msg, region) {
   let now = get_now();
-  let region_clause = where_region(region);
-  let is_meta = region_clause.meta !== null;
+
+  let region_clause = {meta: config.area, sql: 'TRUE'};
+  let is_meta = true;
+
+  if (region !== null) {
+    region_clause = where_region(region);
+    is_meta = region_clause.meta !== null;
+  }
 
   conn.query({
     sql:

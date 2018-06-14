@@ -124,6 +124,7 @@ structure:
       metaregions: {
         // Map from string meta-region names to array of constituent regions.
       },
+      area: 'Name of the geographic area your server encompasses.',
 
       emoji: {
         // Map from Moltres's emoji names to custom emoji names available on
