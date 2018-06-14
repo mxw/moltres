@@ -569,8 +569,8 @@ const emoji_by_name = {
  * Get an emoji by name.
  */
 function get_emoji(name) {
-  return emoji_by_name[name] ||
-         moltres.emojis.find('name', config.emoji[name] || name);
+  name = config.emoji[name] || name;
+  return emoji_by_name[name] || moltres.emojis.find('name', name);
 }
 
 /*
@@ -1560,7 +1560,7 @@ function handle_report(msg, handle, tier, boss, timer) {
                  `hatches at \`[${handle}]\` at ${time_str(hatch)} `;
       } else {
         let raid = {tier: tier, boss: boss};
-        output = `${get_emoji('dragon')} **${fmt_tier_boss(raid)} raid** ` +
+        output = `${get_emoji('boss')} **${fmt_tier_boss(raid)} raid** ` +
                  `despawns at \`[${handle}]\` at ${time_str(despawn)} `;
       }
       output += `(reported by ${msg.author}).`;

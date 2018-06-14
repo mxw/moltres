@@ -136,6 +136,7 @@ structure:
         mystic: '...',
         instinct: '...',
         raidegg: '...',
+        boss: '...',
       }
     };
 
