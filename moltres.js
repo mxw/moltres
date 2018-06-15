@@ -564,6 +564,7 @@ const emoji_by_name = {
   no_entry_sign: '🚫',
   no_good: '🙅',
   thinking: '🤔',
+  whale: '🐳',
 };
 
 /*
