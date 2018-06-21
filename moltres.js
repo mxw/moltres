@@ -462,6 +462,7 @@ const raid_tiers = {
   walrein: 4,
 
   kyogre: 5,
+  regice: 5,
 };
 
 const bosses_for_tier = function() {
