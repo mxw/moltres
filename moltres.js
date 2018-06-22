@@ -406,6 +406,7 @@ const raid_tiers = {
   squirtle: 1,
   magikarp: 1,
   duskull: 1,
+  kabuto: 1,
   omanyte: 1,
   shellder: 1,
   shuppet: 1,
@@ -461,7 +462,6 @@ const raid_tiers = {
   tyranitar: 4,
   walrein: 4,
 
-  kyogre: 5,
   regice: 5,
 };
 
@@ -561,6 +561,7 @@ const emoji_by_name = {
   alarm_clock: '⏰',
   clock230: '🕝',
   cry: '😢',
+  gem: '💎',
   dragon: '🐉',
   no_entry_sign: '🚫',
   no_good: '🙅',
