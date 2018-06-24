@@ -1521,7 +1521,12 @@ function handle_ls_raids(msg, region) {
         output += `\n\tcalled time(s): ${times}`;
       }
     }
-    send_quiet(msg.channel, output);
+    if (region !== null || config.admin_ids.has(msg.author.id)) {
+      send_quiet(msg.channel, output);
+    } else {
+      dm_quiet(msg.author, output);
+      try_delete(msg, 500);
+    }
   }));
 }
 
