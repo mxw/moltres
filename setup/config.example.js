@@ -7,7 +7,7 @@ module.exports = {
 
   // All Discord IDs are ~18 digit integers given as strings, e.g.,
   // '663943454550151362'.  All the IDs below are randomly generated.
-	
+
   // Discord ID of your host server.
   guild_id: '363943454550151362',
 
