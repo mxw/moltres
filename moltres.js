@@ -749,16 +749,12 @@ function mutation_handler(msg, failure = null, success = null) {
  * Get a SQL WHERE clause fragment for selecting a unique gym matching `handle'.
  */
 
-function where_one_gym(handle, name) {
-  if (!name) {
-    // legacy behavior: conflate the two fields if explicit name arg not provided
-    name = handle
-  }
+function where_one_gym(handle) {
   return mysql.format(
     ' (gyms.handle LIKE ? OR gyms.name LIKE ?) AND ' +
     ' (SELECT COUNT(*) FROM gyms WHERE ' +
     '   (gyms.handle LIKE ? OR gyms.name LIKE ?)) = 1 ',
-    [`%${handle}%`, `%${name}%`, `%${handle}%`, `%${name}%`]
+    [`%${handle}%`, `%${handle}%`, `%${handle}%`, `%${handle}%`]
   );
 }
 
@@ -1243,10 +1239,9 @@ region: ${gym.region}
 coords: <https://maps.google.com/maps?q=${gym.lat},${gym.lng}>`;
 }
 
-function handle_gym(msg, name) {
-  let handle = name.replace(/\s+/g, '-');
+function handle_gym(msg, handle) {
   conn.query(
-    'SELECT * FROM gyms WHERE ' + where_one_gym(handle, name),
+    'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
 
     errwrap(msg, function (msg, results) {
       if (!check_one_gym(msg, handle, results)) return;
