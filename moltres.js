@@ -1567,21 +1567,31 @@ function handle_report(msg, handle, tier, boss, timer) {
         'already have an active raid.'
       );
     }, function (msg, result) {
-      let output = null;
+      // Grab the raid information just for reply purposes.
+      conn.query(
+        'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
 
-      if (boss === null) {
-        let hatch = hatch_from_despawn(despawn);
-        output = `${get_emoji('raidegg')} **T${tier} egg** ` +
-                 `hatches at \`[${handle}]\` at ${time_str(hatch)} `;
-      } else {
-        let raid = {tier: tier, boss: boss};
-        output = `${get_emoji('boss')} **${fmt_tier_boss(raid)} raid** ` +
-                 `despawns at \`[${handle}]\` at ${time_str(despawn)} `;
-      }
-      output += `(reported by ${msg.author}).`;
+        errwrap(msg, function (msg, results) {
+          if (!check_one_gym(msg, handle, results)) return;
+          let [gym] = results;
 
-      send_quiet(msg.channel, output);
-      try_delete(msg, 10000);
+          let output = function() {
+            if (boss === null) {
+              let hatch = hatch_from_despawn(despawn);
+              return `${get_emoji('raidegg')} **T${tier} egg** ` +
+                     `hatches at ${gym_name(gym)} at ${time_str(hatch)} `;
+            } else {
+              let raid = {tier: tier, boss: boss};
+              return `${get_emoji('boss')} **${fmt_tier_boss(raid)} raid** ` +
+                     `despawns at ${gym_name(gym)} at ${time_str(despawn)} `;
+            }
+          }();
+          output += `(reported by ${msg.author}).`;
+
+          send_quiet(msg.channel, output);
+          try_delete(msg, 10000);
+        })
+      );
     })
   );
 }
