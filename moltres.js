@@ -1422,7 +1422,7 @@ hatch: ${time_str(hatch)}`;
       for (let t of times) {
         let [{calls}] = rows_by_time[t];
 
-        let caller_found = false;
+        let caller_rsvp = null;
         let total = 0;
 
         // Get an array of attendee strings, removing the raid time caller.
@@ -1433,7 +1433,7 @@ hatch: ${time_str(hatch)}`;
           total += (row.rsvps.extras + 1);
 
           if (member.user.id === calls.caller) {
-            caller_found = true;
+            caller_rsvp = row.rsvps;
             return null;
           }
 
@@ -1445,10 +1445,11 @@ hatch: ${time_str(hatch)}`;
 
         let caller_str = '';
 
-        if (caller_found) {
+        if (caller_rsvp !== null) {
           let caller = guild().members.get(calls.caller);
           caller_str =
             `${caller.nickname || caller.user.username} _(caller)_` +
+            (caller_rsvp.extras !== 0 ? ` +${caller_rsvp.extras}` : '') +
             (attendees.length !== 0 ? ', ' : '');
         }
         output += `\n- **${time_str(calls.time)}** (${total} raiders)—` +
