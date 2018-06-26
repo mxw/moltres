@@ -2,7 +2,7 @@ Moltres
 =======
 
 Moltres is a Discord bot for reporting, coordinating, and joining Pokemon Go
-raids.  It was originally designed and written for [Valor of Boston](vob).
+raids.  It was originally designed and written for [Valor of Boston][vob].
 
 Moltres is location-agnostic and can be set up for use in any region.  It
 performs best when its host server is outfitted with taggable regional roles,
@@ -14,81 +14,39 @@ Setup
 To run an instance of Moltres for your Discord server, first clone the repo:
 
     git clone https://github.com/mxw/moltres.git
+    cd moltres
+    # All of the remaining commands will assume you are in the project folder.
 
 Next, install all the Node package dependencies.
 
-    npm install mysql
-    npm install discord.js  # discord.js@11.3.2
-    # The rest are peer dependencies of discord.js:
-    npm install bufferutil@^3.0.3
-    npm install erlpack@discordapp/erlpack
-    npm install node-opus@^0.2.7
-    npm install opusscript@^0.0.6
-    npm install sodium@^2.0.3
-    npm install libsodium-wrappers@^0.7.3
-    npm install uws@^9.14.0
+    # If you have not yet built any C libraries from source, you will likely
+    # need this:
+    sudo apt-get install libtool-bin automake
+
+    npm install
 
 Install MySQL, e.g.,
 
     sudo apt-get install mysql-server
 
-and create a database `moltresdb` for use by a user named `moltres`.  Then,
-create five tables: `gyms`, `raids`, `calls`, `rsvps`, and `permissions`:
+and create a database `moltresdb` for use by a user named `moltres`.  Then, 
+create five tables: `gyms`, `raids`, `calls`, `rsvps`, and `permissions`. 
 
-    CREATE TABLE `gyms` (
-      `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-      `handle` varchar(64) NOT NULL,
-      `name` varchar(256) NOT NULL,
-      `region` varchar(256) unsigned NOT NULL,
-      `lat` decimal(10,8) NOT NULL,
-      `lng` decimal(11,8) NOT NULL,
-      `ex` tinyint(1) NOT NULL DEFAULT '0',
-      `silent` tinyint(1) NOT NULL DEFAULT '0',
-      PRIMARY KEY (`id`),
-      UNIQUE KEY `handle` (`handle`),
-      KEY `region` (`region`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+The script for this is in [setup/moltres.sql](setup/moltres.sql).  Edit the
+password to whatever you want, then run at the command line with:
 
-    CREATE TABLE `raids` (
-      `gym_id` int(10) unsigned NOT NULL,
-      `tier` tinyint(3) unsigned NOT NULL,
-      `boss` char(16) DEFAULT NULL,
-      `despawn` timestamp NOT NULL,
-      `spotter` bigint(20) unsigned NOT NULL,
-      `team` enum('valor','mystic','instinct') DEFAULT NULL,
-      PRIMARY KEY (`gym_id`),
-      CONSTRAINT `raids_ibfk_1` FOREIGN KEY (`gym_id`) REFERENCES `gyms` (`id`) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+    mysql -u root -p < setup/moltres.sql
+    # This will prompt you for the MySQL root password, which is usually
+    # prompted for during the installation of mysql-server.  If you never set
+    # up a root password, you can try running as the machine's root user.
+    # Otherwise, you get to Google how to reset a MySQL root password.
 
-    CREATE TABLE `calls` (
-      `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-      `raid_id` int(10) unsigned NOT NULL,
-      `caller` bigint(20) unsigned NOT NULL,
-      `time` timestamp NOT NULL,
-      PRIMARY KEY (`id`),
-      UNIQUE KEY `raid_id_2` (`raid_id`,`time`),
-      KEY `raid_id` (`raid_id`),
-      CONSTRAINT `calls_ibfk_1` FOREIGN KEY (`raid_id`) REFERENCES `raids` (`gym_id`) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+Create a Discord bot account and add it to your server by following 
+[these steps][discord-bot].
 
-    CREATE TABLE `rsvps` (
-      `call_id` int(10) unsigned NOT NULL,
-      `user_id` bigint(20) unsigned NOT NULL,
-      `extras` tinyint(3) unsigned NOT NULL DEFAULT '0',
-      `maybe` tinyint(1) NOT NULL DEFAULT '0',
-      PRIMARY KEY (`call_id`,`user_id`),
-      CONSTRAINT `rsvps_ibfk_1` FOREIGN KEY (`call_id`) REFERENCES `calls` (`id`) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=latin1
+When adding Moltres to your server, you must grant it the following permissions
+in the channels in which it's active:
 
-    CREATE TABLE `permissions` (
-      `cmd` varchar(64) NOT NULL,
-      `user_id` bigint(20) unsigned NOT NULL,
-      PRIMARY KEY (`cmd`,`user_id`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-
-Create a Discord bot account by following [these steps](discord-bot).  When
-adding Moltres to your server, you must grant it the following permissions in
-the channels in which it's active:
 - Read Messages
 - Send Messages
 - Manage Messages
@@ -97,49 +55,15 @@ the channels in which it's active:
 - Use External Emojis
 - Add Reactions
 
-Finally, add a file `config.js` in the repo's root directory with the following
-structure:
+Next, add a file `config.js` in the repo's root directory:
 
-    /*
-     * config.js
-     */
-    module.exports = {
-      moltres: "Discord login token for the bot user",
-      moltresdb: "MySQL password for moltres",
+    cp setup/config.example.js config.js
+    vim config.js # or nano, emacs, or whatever editor you prefer
 
-      guild_id: 'Discord ID of your host server',
-
-      admin_ids: new Set([
-        // Array of Discord IDs of users considered bot admins.
-      ]),
-
-      channels: new Set([
-        // Array of Discord IDs of text channels Moltres should watch.
-      ]),
-      log_id: 'Discord ID for the designated log channel',
-
-      regions: {
-        // Map from string region names to region role string IDs.
-      },
-      metaregions: {
-        // Map from string meta-region names to array of constituent regions.
-      },
-      area: 'Name of the geographic area your server encompasses.',
-
-      emoji: {
-        // Map from Moltres's emoji names to custom emoji names available on
-        // any of its servers.
-        approved: '...',
-        banned: '...',
-        dealwithit: '...',
-        team: '...',
-        valor: '...',
-        mystic: '...',
-        instinct: '...',
-        raidegg: '...',
-        boss: '...',
-      }
-    };
+You may have noticed several references to guild IDs, channel IDs, and other
+IDs that are numbers and not names.  You can get these IDs by enabling
+[Developer Mode][discord-dev-mode] in your Discord client, right-clicking the
+entities in question, and selecting Copy ID.
 
 Usage
 -----
@@ -163,9 +87,10 @@ intentional about what capabilities to support with a system like this that
 integrates with a social-first chat application.
 
 If you're interested in Moltres development or have support questions, please
-feel free to ask in [Victory Road](victory-road), Moltres's home server.
+feel free to ask in [Victory Road][victory-road], Moltres's home server.
 
 
 [vob]: https://www.valorofboston.com/
 [discord-bot]: https://github.com/reactiflux/discord-irc/wiki/Creating-a-discord-bot-&-getting-a-token
 [victory-road]: https://discord.gg/hTaVwwr
+[discord-dev-mode]: https://support.discordapp.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-
