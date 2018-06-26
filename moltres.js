@@ -226,13 +226,14 @@ const reqs = {
     perms: Permission.NONE,
     dm: true,
     usage: '<region-name>',
-    args: [Arg.VARIADIC],
+    args: [-Arg.VARIADIC],
     desc: 'List all active raids in a region.',
     detail: [
       'The region name should be any valid region role (without the `@`).',
       'Case doesn\'t matter, and uniquely-identifying prefixes are allowed,',
       'so, e.g., `harvard` will work, but `boston` will not (but `boston',
-      'common` is fine).  See `$help ls-gyms` for examples.',
+      'common` is fine).  See `$help ls-gyms` for examples.\n\nIf no region',
+      'is provided, this lists all known raids.',
     ],
     examples: {
     },
@@ -294,7 +295,7 @@ const reqs = {
     },
   },
   'scrub': {
-    perms: Permission.WHITELIST,
+    perms: Permission.BLACKLIST,
     dm: false,
     usage: '<gym-handle-or-name>',
     args: [Arg.VARIADIC],
@@ -380,12 +381,19 @@ const reqs = {
 };
 
 const req_aliases = {
-  'gyms':    'ls-gyms',
-  'raids':   'ls-raids',
-  'regions': 'ls-regions',
+  'g':        'gym',
+  'gs':       'ls-gyms',
+  'gyms':     'ls-gyms',
+  'r':        'raid',
+  'rs':       'ls-raids',
+  'raids':    'ls-raids',
+  'e':        'egg',
+  'b':        'boss',
+  'u':        'update',
+  'regions':  'ls-regions',
   'search':      'search-gym',
   'search-gyms': 'search-gym',
-  'call':    'call-time',
+  'call':     'call-time',
 };
 
 const boss_aliases = {
@@ -398,27 +406,38 @@ const raid_tiers = {
   squirtle: 1,
   magikarp: 1,
   duskull: 1,
+  kabuto: 1,
+  omanyte: 1,
+  shellder: 1,
   shuppet: 1,
   snorunt: 1,
   swablu: 1,
   wailmer: 1,
 
+  combusken: 2,
+  croconaw: 2,
   electabuzz: 2,
   exeggutor: 2,
   lickitung: 2,
   manectric: 2,
+  marshtomp: 2,
   mawile: 2,
   misdreavus: 2,
   muk: 2,
+  primeape: 2,
   sableye: 2,
   sneasel: 2,
+  tentacruel: 2,
   venomoth: 2,
   weezing: 2,
 
   aerodactyl: 3,
   alakazam: 3,
+  breloom: 3,
   gengar: 3,
   granbull: 3,
+  hitmonchan: 3,
+  hitmonlee: 3,
   jolteon: 3,
   jynx: 3,
   kabutops: 3,
@@ -428,18 +447,22 @@ const raid_tiers = {
   piloswine: 3,
   pinsir: 3,
   scyther: 3,
+  sharpedo: 3,
+  starmie: 3,
+  vaporeon: 3,
 
   absol: 4,
   aggron: 4,
   golem: 4,
   houndoom: 4,
   lapras: 4,
+  poliwrath: 4,
   rhydon: 4,
   snorlax: 4,
   tyranitar: 4,
   walrein: 4,
 
-  latios: 5,
+  regice: 5,
 };
 
 const bosses_for_tier = function() {
@@ -469,6 +492,13 @@ function capitalize(str) {
  */
 function guild() {
   return moltres.guilds.get(config.guild_id);
+}
+
+/*
+ * Whether `user' is a member of `guild'.
+ */
+function is_member(guild, user) {
+  return guild.member(user) !== null;
 }
 
 /*
@@ -531,18 +561,20 @@ const emoji_by_name = {
   alarm_clock: '⏰',
   clock230: '🕝',
   cry: '😢',
+  gem: '💎',
   dragon: '🐉',
   no_entry_sign: '🚫',
   no_good: '🙅',
   thinking: '🤔',
+  whale: '🐳',
 };
 
 /*
  * Get an emoji by name.
  */
 function get_emoji(name) {
-  return emoji_by_name[name] ||
-         moltres.emojis.find('name', config.emoji[name] || name);
+  name = config.emoji[name] || name;
+  return emoji_by_name[name] || moltres.emojis.find('name', name);
 }
 
 /*
@@ -1074,7 +1106,7 @@ function handle_help(msg, req) {
   let out = null;
 
   if (req === null) {
-    out = get_emoji('valor') +
+    out = get_emoji('team') +
           '  Please choose your request from the following:\n\n';
     for (let req of req_order) {
       if (req !== null) {
@@ -1196,7 +1228,9 @@ function check_one_gym(msg, handle, results) {
  * Canonical display of a gym's name when we have a whole table row.
  */
 function gym_name(gym) {
-  return `\`[${gym.handle}]\` **${gym.name}**`;
+  let name = `\`[${gym.handle}]\` **${gym.name}**`;
+  if (gym.ex) name += ' (EX!)';
+  return name;
 }
 
 /*
@@ -1204,7 +1238,7 @@ function gym_name(gym) {
  */
 function gym_row_to_string(gym) {
   return `\`[${gym.handle}]\`
-name: **${gym.name}**
+name: **${gym.name}**${gym.ex ? ' (EX!)' : ''}
 region: ${gym.region}
 coords: <https://maps.google.com/maps?q=${gym.lat},${gym.lng}>`;
 }
@@ -1243,6 +1277,7 @@ function handle_ls_gyms(msg, region) {
           return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
         }
         output += `\n\`[${gym.handle}]\` ${gym.name}`;
+        if (gym.ex) output += ' — (EX!)';
       }
       output = `Gyms in **${out_region}**:\n` + output;
 
@@ -1371,7 +1406,7 @@ hatch: ${time_str(hatch)}`;
       output += `\nlast known team: ${get_emoji(team)}`;
     }
 
-    if (calls.time !== null) {
+    if (calls.time !== null && is_member(guild(), msg.author)) {
       output += '\n\ncall time(s):';
 
       let times = [];
@@ -1393,7 +1428,7 @@ hatch: ${time_str(hatch)}`;
       for (let t of times) {
         let [{calls}] = rows_by_time[t];
 
-        let caller_found = false;
+        let caller_rsvp = null;
         let total = 0;
 
         // Get an array of attendee strings, removing the raid time caller.
@@ -1404,7 +1439,7 @@ hatch: ${time_str(hatch)}`;
           total += (row.rsvps.extras + 1);
 
           if (member.user.id === calls.caller) {
-            caller_found = true;
+            caller_rsvp = row.rsvps;
             return null;
           }
 
@@ -1416,10 +1451,11 @@ hatch: ${time_str(hatch)}`;
 
         let caller_str = '';
 
-        if (caller_found) {
+        if (caller_rsvp !== null) {
           let caller = guild().members.get(calls.caller);
           caller_str =
             `${caller.nickname || caller.user.username} _(caller)_` +
+            (caller_rsvp.extras !== 0 ? ` +${caller_rsvp.extras}` : '') +
             (attendees.length !== 0 ? ', ' : '');
         }
         output += `\n- **${time_str(calls.time)}** (${total} raiders)—` +
@@ -1433,8 +1469,14 @@ hatch: ${time_str(hatch)}`;
 
 function handle_ls_raids(msg, region) {
   let now = get_now();
-  let region_clause = where_region(region);
-  let is_meta = region_clause.meta !== null;
+
+  let region_clause = {meta: config.area, sql: 'TRUE'};
+  let is_meta = true;
+
+  if (region !== null) {
+    region_clause = where_region(region);
+    is_meta = region_clause.meta !== null;
+  }
 
   conn.query({
     sql:
@@ -1479,20 +1521,28 @@ function handle_ls_raids(msg, region) {
         output += ` — _${gyms.region}_`;
       }
 
-      if (calls.time !== null) {
+      if (calls.time !== null && is_member(guild(), msg.author)) {
         let times = rows_by_raid[handle]
           .map(row => time_str(row.calls.time))
           .join(', ');
         output += `\n\tcalled time(s): ${times}`;
       }
     }
-    send_quiet(msg.channel, output);
+    if (region !== null || config.admin_ids.has(msg.author.id)) {
+      send_quiet(msg.channel, output);
+    } else {
+      dm_quiet(msg.author, output);
+      try_delete(msg, 500);
+    }
   }));
 }
 
 function handle_report(msg, handle, tier, boss, timer) {
   if (tier instanceof InvalidArg) {
     return log_invalid(msg, `Invalid raid tier \`${tier.arg}\`.`);
+  }
+  if (boss instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid raid boss \`${boss.arg}\`.`);
   }
   if (timer instanceof InvalidArg) {
     return log_invalid(msg, `Invalid MM:SS timer \`${timer.arg}\`.`);
@@ -1524,21 +1574,31 @@ function handle_report(msg, handle, tier, boss, timer) {
         'already have an active raid.'
       );
     }, function (msg, result) {
-      let output = null;
+      // Grab the raid information just for reply purposes.
+      conn.query(
+        'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
 
-      if (boss === null) {
-        let hatch = hatch_from_despawn(despawn);
-        output = `${get_emoji('raidegg')} **T${tier} egg** ` +
-                 `hatches at \`[${handle}]\` at ${time_str(hatch)} `;
-      } else {
-        let raid = {tier: tier, boss: boss};
-        output = `${get_emoji('dragon')} **${fmt_tier_boss(raid)} raid** ` +
-                 `despawns at \`[${handle}]\` at ${time_str(despawn)} `;
-      }
-      output += `(reported by ${msg.author}).`;
+        errwrap(msg, function (msg, results) {
+          if (!check_one_gym(msg, handle, results)) return;
+          let [gym] = results;
 
-      send_quiet(msg.channel, output);
-      try_delete(msg, 10000);
+          let output = function() {
+            if (boss === null) {
+              let hatch = hatch_from_despawn(despawn);
+              return `${get_emoji('raidegg')} **T${tier} egg** ` +
+                     `hatches at ${gym_name(gym)} at ${time_str(hatch)} `;
+            } else {
+              let raid = {tier: tier, boss: boss};
+              return `${get_emoji('boss')} **${fmt_tier_boss(raid)} raid** ` +
+                     `despawns at ${gym_name(gym)} at ${time_str(despawn)} `;
+            }
+          }();
+          output += `(reported by ${msg.author}).`;
+
+          send_quiet(msg.channel, output);
+          try_delete(msg, 10000);
+        })
+      );
     })
   );
 }
@@ -1639,7 +1699,8 @@ function handle_scrub(msg, handle) {
 // Raid call handlers.
 
 /*
- * Get an array of all the users attending the raid at `handle' at `time'.
+ * Get an array of all the users (and associated metadata) attending the raid
+ * at `handle' at `time'.
  */
 function get_all_raiders(msg, handle, time, fn) {
   select_rsvps('AND ' + where_call_time(time), [], handle,
@@ -1650,7 +1711,10 @@ function get_all_raiders(msg, handle, time, fn) {
 
       for (let row of results) {
         let member = guild().members.get(row.rsvps.user_id);
-        if (member) raiders.push(member);
+        if (member) raiders.push({
+          member: member,
+          extras: row.rsvps.extras,
+        });
       }
       fn(msg, results[0], raiders);
     })
@@ -1681,7 +1745,8 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
         `${gyaoo} ${get_emoji('alarm_clock')} ` +
         `Raid call for ${gym_name(row.gyms)} ` +
         `at \`${time_str(call_time)}\` is in ${before} minutes!` +
-        `\n\n${raiders.map(m => m.user).join(' ')}`;
+        `\n\n${raiders.map(r => r.member.user).join(' ')} ` +
+        `(${raiders.reduce((sum, r) => sum + 1 + r.extras, 0)} raiders)`;
       send_quiet(msg.channel, output);
     });
   }, delay);
@@ -1847,7 +1912,7 @@ function handle_change_time(msg, handle, current, to, desired) {
         join_cache_set(handle, current, null);
 
         raiders = raiders
-          .map(member => member.user)
+          .map(r => r.member.user)
           .filter(user => user.id != msg.author.id);
 
         let output =
@@ -1910,14 +1975,18 @@ function handle_join(msg, handle, call_time, extras) {
         };
         clear_join_msg();
 
-        raiders = raiders.filter(user => user.id != msg.author.id);
+        raiders = raiders.filter(r => r.member.id != msg.author.id);
 
-        let output = get_emoji('valor') + '  ' +
-          `${msg.author} is joining at ${time_str(calls.time)} ` +
+        let joining_str = extras > 0 ? `joining with +${extras}` : 'joining';
+
+        let output = get_emoji('team') + '  ' +
+          `${msg.author} is ${joining_str} at ${time_str(calls.time)} ` +
           `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
 
         if (raiders.length !== 0) {
-          let names = raiders.map(memb => memb.nickname || memb.user.username);
+          let names = raiders.map(
+            r => r.member.nickname || r.member.user.username
+          );
           output += ` (with ${names.join(', ')}).`;
         } else {
           output += '.';
