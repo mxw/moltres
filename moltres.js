@@ -1693,7 +1693,8 @@ function handle_scrub(msg, handle) {
 // Raid call handlers.
 
 /*
- * Get an array of all the users attending the raid at `handle' at `time'.
+ * Get an array of all the users (and associated metadata) attending the raid
+ * at `handle' at `time'.
  */
 function get_all_raiders(msg, handle, time, fn) {
   select_rsvps('AND ' + where_call_time(time), [], handle,
@@ -1704,7 +1705,10 @@ function get_all_raiders(msg, handle, time, fn) {
 
       for (let row of results) {
         let member = guild().members.get(row.rsvps.user_id);
-        if (member) raiders.push(member);
+        if (member) raiders.push({
+          member: member,
+          extras: row.rsvps.extras,
+        });
       }
       fn(msg, results[0], raiders);
     })
@@ -1735,7 +1739,8 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
         `${gyaoo} ${get_emoji('alarm_clock')} ` +
         `Raid call for ${gym_name(row.gyms)} ` +
         `at \`${time_str(call_time)}\` is in ${before} minutes!` +
-        `\n\n${raiders.map(m => m.user).join(' ')}`;
+        `\n\n${raiders.map(r => r.member.user).join(' ')} ` +
+        `(${raiders.reduce((sum, r) => sum + 1 + r.extras, 0)} raiders)`;
       send_quiet(msg.channel, output);
     });
   }, delay);
@@ -1901,7 +1906,7 @@ function handle_change_time(msg, handle, current, to, desired) {
         join_cache_set(handle, current, null);
 
         raiders = raiders
-          .map(member => member.user)
+          .map(r => r.member.user)
           .filter(user => user.id != msg.author.id);
 
         let output =
@@ -1964,7 +1969,7 @@ function handle_join(msg, handle, call_time, extras) {
         };
         clear_join_msg();
 
-        raiders = raiders.filter(user => user.id != msg.author.id);
+        raiders = raiders.filter(r => r.member.id != msg.author.id);
 
         let joining_str = extras > 0 ? `joining with +${extras}` : 'joining';
 
@@ -1973,7 +1978,9 @@ function handle_join(msg, handle, call_time, extras) {
           `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
 
         if (raiders.length !== 0) {
-          let names = raiders.map(memb => memb.nickname || memb.user.username);
+          let names = raiders.map(
+            r => r.member.nickname || r.member.user.username
+          );
           output += ` (with ${names.join(', ')}).`;
         } else {
           output += '.';
