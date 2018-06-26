@@ -1,7 +1,7 @@
 {
   "name": "moltres-bot",
   "version": "0.0.0",
-  "description": "A Discord bot for reporting, coordinating, and joining Pokemon Go raids",
+  "description": "A Discord bot for reporting, coordinating, and joining Pokemon Go raids.",
   "main": "moltres.js",
   "homepage": "https://github.com/mxw/moltres",
   "repository": {
