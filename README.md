@@ -15,11 +15,12 @@ To run an instance of Moltres for your Discord server, first clone the repo:
 
     git clone https://github.com/mxw/moltres.git
     cd moltres
-    # all of the remaining commands will assume you are in the project folder
+    # All of the remaining commands will assume you are in the project folder.
 
 Next, install all the Node package dependencies.
 
-    # if you have not yet built any C libraries from source, you will likely need this
+    # If you have not yet built any C libraries from source, you will likely
+    # need this:
     sudo apt-get install libtool-bin automake
 
     npm install
@@ -28,61 +29,54 @@ Install MySQL, e.g.,
 
     sudo apt-get install mysql-server
 
-and create a database `moltresdb` for use by a user named `moltres`. Then, 
+and create a database `moltresdb` for use by a user named `moltres`.  Then, 
 create five tables: `gyms`, `raids`, `calls`, `rsvps`, and `permissions`. 
 
-The script for this is in [setup/moltres.sql](setup/moltres.sql). Edit the
-password to something you want, then run at the command line with:
+The script for this is in [setup/moltres.sql](setup/moltres.sql).  Edit the
+password to whatever you want, then run at the command line with:
 
     mysql -u root -p < setup/moltres.sql
-    
-    # this will prompt you for the MySQL root password, which is usually prompted for during the apt-get install
-    # if you never set up a root password, you can try running as the machine's root user. 
-    # Otherwise, you get to google how to reset a MySQL root password.
-    # sudo mysql -u root < setup/moltres.sql
+    # This will prompt you for the MySQL root password, which is usually
+    # prompted for during the installation of mysql-server.  If you never set
+    # up a root password, you can try running as the machine's root user.
+    # Otherwise, you get to Google how to reset a MySQL root password.
 
 Create a Discord bot account and add it to your server by following 
 [these steps][discord-bot].
 
-When adding Moltres to your server, you must grant it the following 
-permissions in the channels in which it's active:
+When adding Moltres to your server, you must grant it the following permissions
+in the channels in which it's active:
 
-*  Read Messages
-*  Send Messages
-*  Manage Messages
-*  Embed Links
-*  Read Message History
-*  Use External Emojis
-*  Add Reactions
+- Read Messages
+- Send Messages
+- Manage Messages
+- Embed Links
+- Read Message History
+- Use External Emojis
+- Add Reactions
 
 Next, add a file `config.js` in the repo's root directory:
 
     cp setup/config.example.js config.js
-    vim config.js # or nano, emacs, whatever editor you prefer.
+    vim config.js # or nano, emacs, or whatever editor you prefer
 
-You may have noticed several references to "Guild IDs", "Channel IDs", and 
-other IDs that are numbers and not names. You can get these IDs by enabling 
-[**Developer Mode** in your Discord Client][discord-developer-mode], 
-right-clicking the entities in question, and hitting Copy ID.
-
-And finally, after all of that configuration, execute:
-
-    ./moltres.sh
+You may have noticed several references to guild IDs, channel IDs, and other
+IDs that are numbers and not names.  You can get these IDs by enabling
+[Developer Mode][discord-dev-mode] in your Discord client, right-clicking the
+entities in question, and selecting Copy ID.
 
 Usage
 -----
 
-In order for Moltres to be useful, you'll have to manually add gym records to 
-the `gyms` table, either via MySQL INSERT queries, or using the `$add-gym` 
-command, e.g.,
+To run Moltres, simply execute
+
+    ./moltres.sh
+
+once all the setup has been completed.  In order for Moltres to be useful,
+you'll have to manually add gym records to the `gyms` table, either via MySQL
+INSERT queries, or using the `$add-gym` command, e.g.,
 
     $add-gym galaxy-sphere kendall 42.362374 -71.084384 Galaxy: Earth Sphere
-
-You can then retrieve these with:
-
-    $gym galaxy-sphere
-    $search sphere # alias for $search-gym
-    $gyms kendall # alias for $ls-gyms
 
 Contribution
 ------------
@@ -99,4 +93,4 @@ feel free to ask in [Victory Road][victory-road], Moltres's home server.
 [vob]: https://www.valorofboston.com/
 [discord-bot]: https://github.com/reactiflux/discord-irc/wiki/Creating-a-discord-bot-&-getting-a-token
 [victory-road]: https://discord.gg/hTaVwwr
-[discord-developer-mode]: https://support.discordapp.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-
+[discord-dev-mode]: https://support.discordapp.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-
