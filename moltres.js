@@ -750,10 +750,12 @@ function mutation_handler(msg, failure = null, success = null) {
  */
 function where_one_gym(handle) {
   return mysql.format(
-    ' (gyms.handle LIKE ? OR gyms.name LIKE ?) AND ' +
-    ' (SELECT COUNT(*) FROM gyms WHERE ' +
-    '   (gyms.handle LIKE ? OR gyms.name LIKE ?)) = 1 ',
-    [`%${handle}%`, `%${handle}%`, `%${handle}%`, `%${handle}%`]
+    ' (gyms.handle = ? OR (' +
+    '   (gyms.handle LIKE ? OR gyms.name LIKE ?) AND ' +
+    '   (SELECT COUNT(*) FROM gyms WHERE ' +
+    '     (gyms.handle LIKE ? OR gyms.name LIKE ?)) = 1 ' +
+    ' ))',
+    [handle].concat(Array(4).fill(`%${handle}%`))
   );
 }
 
@@ -1208,12 +1210,10 @@ function handle_test(msg, args) {
 function check_one_gym(msg, handle, results) {
   if (results.length < 1) {
     chain_reaccs(msg, 'cry');
-    send_quiet(msg.channel,
-      `No unique gym match found for \`[${handle}]\`.`
-    );
+    send_quiet(msg.channel, `No unique gym match found for \`[${handle}]\`.`);
     return false;
   } else if (results.length > 1) {
-    log_invalid(msg, `Multiple gyms matching \`[${handle}]\`.`);
+    send_quiet(msg.channel, `Multiple gyms matching \`[${handle}]\`.`);
     return false;
   }
   return true;
