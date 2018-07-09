@@ -1238,6 +1238,26 @@ region: ${gym.region}
 coords: <https://maps.google.com/maps?q=${gym.lat},${gym.lng}>`;
 }
 
+/*
+ * Canonically list an array of gyms in string form.
+ *
+ * If `is_valid' is supplied, we verify that it returns true for each gym, and
+ * return null if it ever fails.
+ */
+function list_gyms(gyms, incl_region = true, is_valid = null) {
+  let output = [];
+
+  for (let gym of gyms) {
+    if (is_valid !== null && !is_valid(gym)) return null;
+
+    let str = `\`[${gym.handle}]\` ${gym.name}`;
+    if (gym.ex) str += ' **(EX!)**';
+    if (incl_region) str += ` — _${gym.region}_`;
+    output.push(str);
+  }
+  return output.join('\n');
+}
+
 function handle_gym(msg, handle) {
   conn.query(
     'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
@@ -1264,17 +1284,15 @@ function handle_ls_gyms(msg, region) {
       }
 
       let out_region = is_meta ? region_clause.meta : results[0].region;
-      let output = '';
 
-      for (let gym of results) {
-        if (!is_meta && gym.region !== out_region) {
-          return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
-        }
-        output += `\n\`[${gym.handle}]\` ${gym.name}`;
-        if (gym.ex) output += ' — (EX!)';
+      let gym_list = list_gyms(results, false,
+        gym => (is_meta || gym.region === out_region)
+      );
+      if (gym_list === null) {
+        return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
       }
-      output = `Gyms in **${out_region}**:\n` + output;
 
+      let output = `Gyms in **${out_region}**:\n\n` + gym_list;
       send_quiet(msg.channel, output);
     })
   );
@@ -1294,10 +1312,7 @@ function handle_search_gym(msg, name) {
         );
       }
 
-      let output = `Gyms matching \`${name}\`:\n`;
-      for (let gym of results) {
-        output += `\n\`[${gym.handle}]\` ${gym.name} — _${gym.region}_`;
-      }
+      let output = `Gyms matching \`${name}\`:\n\n` + list_gyms(results);
       send_quiet(msg.channel, output);
     })
   );
