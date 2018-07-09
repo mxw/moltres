@@ -8,6 +8,7 @@ const mysql = require('mysql');
 const utils = require('./utils.js');
 
 var config = require('./config.js');
+var channels_for_region = compute_region_channel_map();
 
 const moltres = new Discord.Client();
 
@@ -410,6 +411,18 @@ const req_aliases = {
   'call':     'call-time',
 };
 
+var raid_tiers = require('./raid-tiers.js');
+var bosses_for_tier = compute_tier_boss_map();
+
+const boss_aliases = {
+  ttar: 'tyranitar',
+};
+
+const gyaoo = 'Gyaoo!';
+
+///////////////////////////////////////////////////////////////////////////////
+// Derived config state.
+
 /*
  * Invert the boss-to-tier map and return the result.
  */
@@ -423,14 +436,28 @@ function compute_tier_boss_map() {
   return ret;
 };
 
-var raid_tiers = require('./raid-tiers.js');
-var bosses_for_tier = compute_tier_boss_map();
+/*
+ * Invert the channel-to-region map, and splat out any metaregions.
+ */
+function compute_region_channel_map() {
+  let ret = {};
 
-const boss_aliases = {
-  ttar: 'tyranitar',
-};
-
-const gyaoo = 'Gyaoo!';
+  for (let chan in config.channels) {
+    let regions = config.channels[chan];
+    for (let region of regions) {
+      if (region in config.metaregions) {
+        for (let subregion of config.metaregions[region]) {
+          ret[subregion] = ret[subregion] || [];
+          ret[subregion].push(chan);
+        }
+      } else {
+        ret[region] = ret[region] || [];
+        ret[region].push(chan);
+      }
+    }
+  }
+  return ret;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Misc utilities.
@@ -492,6 +519,22 @@ function dm_quiet(user, content) {
   return user.createDM()
     .then(dm => send_quiet(dm, content))
     .catch(console.error);
+}
+
+/*
+ * Send `content' to all the channels for `region'.
+ *
+ * Returns true if any channels were sent to, else false.
+ */
+function send_for_region(region, content) {
+  let channels = channels_for_region[region];
+  if (!channels) return false;
+
+  for (let chan_id of channels) {
+    let chan = moltres.channels.get(chan_id);
+    send_quiet(chan, content);
+  }
+  return true;
 }
 
 /*
@@ -1566,7 +1609,7 @@ function handle_report(msg, handle, tier, boss, timer) {
           }();
           output += `(reported by ${msg.author}).`;
 
-          send_quiet(msg.channel, output);
+          send_for_region(gym.region, output);
           try_delete(msg, 10000);
         })
       );
@@ -1826,7 +1869,7 @@ function handle_call_time(msg, handle, call_time, extras) {
             `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
             `\n\nTo join this raid time, enter ` +
             `\`$join ${raid.handle} ${time}\`.`;
-          send_quiet(msg.channel, output);
+          send_for_region(raid.region, output);
 
           set_raid_alarm(msg, raid.handle, call_time);
         })
@@ -2124,7 +2167,7 @@ function process_request(msg) {
  * Main reader event.
  */
 moltres.on('message', msg => {
-  if (config.channels.has(msg.channel.id) ||
+  if (msg.channel.id in config.channels ||
       msg.channel.type === 'dm') {
     try {
       process_request(msg);

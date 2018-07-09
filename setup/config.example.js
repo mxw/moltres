@@ -16,11 +16,19 @@ module.exports = {
     '203901392075299070',
   ]),
 
-  // Array of Discord IDs of text channels Moltres should watch.
-  channels: new Set([
-    '360364029619318505',
-    '406619804973474187',
-  ]),
+  // Map from Discord IDs of text channels Moltres watches to arrays of region
+  // or metaregion names whose raid activities should be posted to the channel.
+  channels: {
+    // Raid reports and calls for Foobar Square and Baz University are posted
+    // in this channel.
+    '360364029619318505': ['Foobar Square', 'Baz University'],
+    // Another way of expressing the same thing as the above (because of the
+    // Downtown metaregion definition below.
+    '360364029619318505': ['Downtown'],
+
+    // Moltres watches this channel but doesn't post to it.
+    '406619804973474187': [],
+  },
   // Discord ID of the designated log channel, e.g., #moltres_log.
   log_id: '302810502352155064',
 
