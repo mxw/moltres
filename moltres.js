@@ -2083,7 +2083,7 @@ function handle_request(msg, request, argv) {
     case 'join':      return handle_join(msg, ...argv);
     case 'unjoin':    return handle_unjoin(msg, ...argv);
     default:
-      return log_invalid(msg, `Invalid request \`${request}\`.`);
+      return log_invalid(msg, `Invalid request \`${request}\`.`, true);
   }
 }
 
@@ -2150,7 +2150,7 @@ function process_request(msg) {
 
   req = req_aliases[req] || req;
   if (!(req in reqs)) {
-    return log_invalid(msg, `Invalid request \`${req}\`.`);
+    return log_invalid(msg, `Invalid request \`${req}\`.`, true);
   }
 
   let argv = parse_args(args, reqs[req].args);
