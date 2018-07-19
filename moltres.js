@@ -76,13 +76,14 @@ const req_order = [
   'help', 'set-perm', 'test', 'reload-config', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
-  'call', 'change-time', 'join', 'unjoin',
+  'call', 'cancel', 'change-time', 'join', 'unjoin',
 ];
 
 const req_to_perm = {
   egg:    'report',
   boss:   'report',
   update: 'report',
+  cancel: 'call',
   'change-time': 'call',
 };
 
@@ -340,6 +341,22 @@ const reqs = {
                        'with +2 extra people.',
     },
   },
+  'cancel': {
+    perms: Permission.BLACKLIST,
+    dm: false,
+    usage: '<gym-handle-or-name> [HH:MM]',
+    args: [Arg.VARIADIC, -Arg.HOURMIN],
+    desc: 'Cancel a called raid time.',
+    detail: [
+      'Specifying the time is only required if the raid has multiple called',
+      'times.',
+    ],
+    examples: {
+      'galaxy': 'Cancel the raid at **Galaxy: Earth Sphere**.  This ' +
+                'only works if there is only a single called time.',
+      'galaxy 1:42': 'Cancel the 1:42 p.m. raid at **Galaxy: Earth Sphere**.',
+    },
+  },
   'change-time': {
     perms: Permission.BLACKLIST,
     dm: false,
@@ -408,6 +425,8 @@ const req_aliases = {
   'search':      'search-gym',
   'search-gyms': 'search-gym',
   'call-time':   'call',
+  'cancel-time': 'cancel',
+  'uncall':   'cancel',
 };
 
 var raid_tiers = require('./raid-tiers.js');
@@ -787,13 +806,20 @@ function where_region(region) {
  * Get a SQL WHERE clause fragment for selecting a specific call time.
  *
  * If `time' is null, instead we select for a single unique time.
+ *
+ * If `for_update' is true, we proxy through a temporary table because we're
+ * modifying the calls table.
  */
-function where_call_time(call_time = null) {
+function where_call_time(call_time, for_update = false) {
   if (!!call_time) {
     return mysql.format(' calls.time = ? ', [call_time]);
   }
-  return ' (SELECT COUNT(*) FROM calls ' +
-         '  WHERE raids.gym_id = calls.raid_id) = 1 ';
+  return (
+    ' (SELECT COUNT(*) FROM ' +
+    (for_update ? '(SELECT * FROM calls)' : 'calls') +
+    '  AS calls_tmp' +
+    '  WHERE raids.gym_id = calls_tmp.raid_id) = 1 '
+  );
 }
 
 /*
@@ -1877,6 +1903,51 @@ function handle_call(msg, handle, call_time, extras) {
   );
 }
 
+function handle_cancel(msg, handle, call_time) {
+  if (call_time instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
+  }
+
+  let fail = function(msg) {
+    log_invalid(msg,
+      `Could not find a single raid time for \`[${handle}]\`` +
+      (!!call_time
+        ? ` with called time \`${time_str(call_time)}\`.`
+        : '.  Either none or multiple have been called.')
+    );
+  }
+
+  get_all_raiders(msg, handle, call_time, function (msg, row, raiders) {
+    if (row === null) return fail(msg);
+    let {gyms, raids, calls} = row;
+
+    conn.query(
+      'DELETE calls FROM calls ' +
+      '   INNER JOIN raids ON calls.raid_id = raids.gym_id ' +
+      '   INNER JOIN gyms ON raids.gym_id = gyms.id ' +
+      'WHERE ' + where_one_gym(handle) +
+      '  AND ' + where_call_time(call_time, true) +
+      '  AND calls.caller = ? ',
+      [msg.author.id],
+
+      mutation_handler(msg, fail, function (msg, result) {
+        raiders = raiders
+          .map(r => r.member.user)
+          .filter(user => user.id != msg.author.id);
+
+        let output =
+          `Raid at ${time_str(calls.time)} for ${gym_name(gyms)} ` +
+          `was cancelled by ${msg.author}.  ${gyaoo}`;
+
+        if (raiders.length !== 0) {
+          output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
+        }
+        send_for_region(gyms.region, output);
+      })
+    );
+  });
+}
+
 function handle_change_time(msg, handle, current, to, desired) {
   if (current instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${current.arg}\`.`);
@@ -2078,6 +2149,7 @@ function handle_request(msg, request, argv) {
     case 'scrub':     return handle_scrub(msg, ...argv);
 
     case 'call':      return handle_call(msg, ...argv);
+    case 'cancel':    return handle_cancel(msg, ...argv);
     case 'change-time': return handle_change_time(msg, ...argv);
     case 'join':      return handle_join(msg, ...argv);
     case 'unjoin':    return handle_unjoin(msg, ...argv);
