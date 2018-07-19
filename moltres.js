@@ -76,14 +76,13 @@ const req_order = [
   'help', 'set-perm', 'test', 'reload-config', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
-  'call-time', 'change-time', 'join', 'unjoin',
+  'call', 'change-time', 'join', 'unjoin',
 ];
 
 const req_to_perm = {
   egg:    'report',
   boss:   'report',
   update: 'report',
-  'call-time':   'call',
   'change-time': 'call',
 };
 
@@ -322,7 +321,7 @@ const reqs = {
     },
   },
 
-  'call-time': {
+  'call': {
     perms: Permission.BLACKLIST,
     dm: false,
     usage: '<gym-handle-or-name> <HH:MM> [num-extras]',
@@ -408,7 +407,7 @@ const req_aliases = {
   'regions':  'ls-regions',
   'search':      'search-gym',
   'search-gyms': 'search-gym',
-  'call':     'call-time',
+  'call-time':   'call',
 };
 
 var raid_tiers = require('./raid-tiers.js');
@@ -1644,7 +1643,7 @@ function handle_update(msg, handle, data) {
     let despawn = parse_hour_minute(data);
     if (despawn !== null && despawn > now &&
         pop_from_despawn(despawn) <= now) {
-      // See the comment in handle_call_time() for the reason behind adding
+      // See the comment in handle_call() for the reason behind adding
       // this extra second.
       despawn.setSeconds(despawn.getSeconds());
       return { despawn: despawn };
@@ -1791,7 +1790,7 @@ function join_cache_set(handle, time, msg) {
   }
 }
 
-function handle_call_time(msg, handle, call_time, extras) {
+function handle_call(msg, handle, call_time, extras) {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
@@ -1889,7 +1888,7 @@ function handle_change_time(msg, handle, current, to, desired) {
     return log_invalid(msg, usage_string('change-time'));
   }
 
-  // See comment in handle_call_time().
+  // See comment in handle_call().
   let later = new Date(desired.getTime());
   later.setMinutes(later.getMinutes() + 46);
 
@@ -2078,7 +2077,7 @@ function handle_request(msg, request, argv) {
     case 'update':    return handle_update(msg, ...argv);
     case 'scrub':     return handle_scrub(msg, ...argv);
 
-    case 'call-time': return handle_call_time(msg, ...argv);
+    case 'call':      return handle_call(msg, ...argv);
     case 'change-time': return handle_change_time(msg, ...argv);
     case 'join':      return handle_join(msg, ...argv);
     case 'unjoin':    return handle_unjoin(msg, ...argv);
