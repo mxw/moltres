@@ -5,8 +5,9 @@
 
 const Discord = require('discord.js');
 const mysql = require('mysql');
-const config = require('./config.js');
 const utils = require('./utils.js');
+
+var config = require('./config.js');
 
 const moltres = new Discord.Client();
 
@@ -71,7 +72,7 @@ const InvalidArg = utils.InvalidArg;
  * Order of display for $help.
  */
 const req_order = [
-  'help', 'set-perm', 'test', null,
+  'help', 'set-perm', 'test', 'reload-config', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
   'call-time', 'change-time', 'join', 'unjoin',
@@ -110,6 +111,19 @@ const reqs = {
     desc: 'Enable others to use more requests.',
     detail: [
       'The user should be identified by tag.',
+    ],
+    examples: {
+    },
+  },
+  'reload-config': {
+    perms: Permission.ADMIN,
+    dm: true,
+    usage: '',
+    args: [],
+    desc: 'Reload the Moltres config file.',
+    detail: [
+      'This resets channel mappings, raid boss tiers, etc.  It is only',
+      'available to Moltres admins.',
     ],
     examples: {
     },
@@ -396,76 +410,10 @@ const req_aliases = {
   'call':     'call-time',
 };
 
-const boss_aliases = {
-  ttar: 'tyranitar',
-};
-
-const raid_tiers = {
-  bulbasaur: 1,
-  charmander: 1,
-  squirtle: 1,
-  magikarp: 1,
-  duskull: 1,
-  kabuto: 1,
-  omanyte: 1,
-  shellder: 1,
-  shuppet: 1,
-  snorunt: 1,
-  swablu: 1,
-  wailmer: 1,
-
-  combusken: 2,
-  croconaw: 2,
-  electabuzz: 2,
-  exeggutor: 2,
-  lickitung: 2,
-  manectric: 2,
-  marshtomp: 2,
-  mawile: 2,
-  misdreavus: 2,
-  muk: 2,
-  primeape: 2,
-  sableye: 2,
-  sneasel: 2,
-  tentacruel: 2,
-  venomoth: 2,
-  weezing: 2,
-
-  aerodactyl: 3,
-  alakazam: 3,
-  breloom: 3,
-  gengar: 3,
-  granbull: 3,
-  hitmonchan: 3,
-  hitmonlee: 3,
-  jolteon: 3,
-  jynx: 3,
-  kabutops: 3,
-  machamp: 3,
-  omastar: 3,
-  onix: 3,
-  piloswine: 3,
-  pinsir: 3,
-  scyther: 3,
-  sharpedo: 3,
-  starmie: 3,
-  vaporeon: 3,
-
-  absol: 4,
-  aggron: 4,
-  golem: 4,
-  houndoom: 4,
-  lapras: 4,
-  poliwrath: 4,
-  rhydon: 4,
-  snorlax: 4,
-  tyranitar: 4,
-  walrein: 4,
-
-  regice: 5,
-};
-
-const bosses_for_tier = function() {
+/*
+ * Invert the boss-to-tier map and return the result.
+ */
+function compute_tier_boss_map() {
   let ret = [];
   for (let boss in raid_tiers) {
     let tier = raid_tiers[boss];
@@ -473,7 +421,14 @@ const bosses_for_tier = function() {
     ret[tier].push(boss);
   }
   return ret;
-}();
+};
+
+var raid_tiers = require('./raid-tiers.js');
+var bosses_for_tier = compute_tier_boss_map();
+
+const boss_aliases = {
+  ttar: 'tyranitar',
+};
 
 const gyaoo = 'Gyaoo!';
 
@@ -1153,6 +1108,13 @@ function handle_set_perm(msg, user_tag, req) {
       user_id: user_id, },
     mutation_handler(msg)
   );
+}
+
+function handle_reload_config(msg) {
+  config = require('./config.js');
+  raid_tiers = require('./raid-tiers.js');
+  bosses_for_tier = compute_tier_boss_map();
+  react_success(msg);
 }
 
 function handle_test(msg, args) {
@@ -2057,6 +2019,7 @@ function handle_request(msg, request, argv) {
   switch (request) {
     case 'help':      return handle_help(msg, ...argv);
     case 'set-perm':  return handle_set_perm(msg, ...argv);
+    case 'reload-config': return handle_reload_config(msg, ...argv);
     case 'test':      return handle_test(msg, ...argv);
 
     case 'gym':       return handle_gym(msg, ...argv);
