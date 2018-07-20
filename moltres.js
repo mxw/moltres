@@ -1942,7 +1942,7 @@ function handle_cancel(msg, handle, call_time) {
           .map(r => r.member.user)
           .filter(user => user.id != msg.author.id);
 
-        let output =
+        let output = get_emoji('no_entry_sign') + ' ' +
           `Raid at ${time_str(calls.time)} for ${gym_name(gyms)} ` +
           `was cancelled by ${msg.author}.  ${gyaoo}`;
 
