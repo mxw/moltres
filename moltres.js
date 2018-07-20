@@ -260,7 +260,7 @@ const reqs = {
     args: [Arg.VARIADIC, Arg.TIER, Arg.TIMER],
     desc: 'Report a raid egg.',
     detail: [
-      'The tier can be any number 1–5 or things like `t3` or `T4`. The time',
+      'The tier can be any number 1–5 or things like `t3` or `T4`.  The time',
       'should be the current _**countdown timer**_, not a time of day. See',
       '`$help gym` for details on gym handles.',
     ],
@@ -278,13 +278,16 @@ const reqs = {
     args: [Arg.VARIADIC, Arg.BOSS, Arg.TIMER],
     desc: 'Report a hatched raid boss.',
     detail: [
-      'The time should be the current _**countdown timer**_, not a time of',
-      'day. See `$help gym` for details on gym handles.',
+      'Raid bosses with multi-word names should be hyphenated; e.g.,',
+      '`alolan-exeggutor`.  Some short names are supported, like `ttar` or',
+      '`tall-eggtree`.\n\nThe time should be the current _**countdown',
+      'timer**_, not a time of day.\n\nSee `$help gym` for details on gym',
+      'handles.',
     ],
     examples: {
-      'galaxy-sphere latios 3:35':
-        'Report a Latios at **Galaxy: Earth Sphere** that despawns in three ' +
-        'minutes and thirty-five seconds.',
+      'galaxy-sphere alolan-exeggutor 3:35':
+        'Report an Alolan Exeggutor at **Galaxy: Earth Sphere** that ' +
+        'despawns in three minutes and thirty-five seconds.',
       'galaxy sphere latios 3:35':
         'Invalid because `sphere` is not a raid tier.',
       'galaxy 5 3:35': 'Invalid because `5` is not a Pokemon.',
@@ -434,6 +437,8 @@ var bosses_for_tier = compute_tier_boss_map();
 
 const boss_aliases = {
   ttar: 'tyranitar',
+  tall: 'alolan-exeggutor',
+  'tall-eggtree': 'alolan-exeggutor',
 };
 
 const gyaoo = 'Gyaoo!';
@@ -1392,11 +1397,13 @@ function handle_ls_regions(msg) {
 function fmt_tier_boss(raid) {
   let tier = raid.tier;
 
+  let fmt = boss => boss.split('-').map(capitalize).join(' ');
+
   let boss = raid.boss !== null
-    ? capitalize(raid.boss)
+    ? fmt(raid.boss)
     : (tier < bosses_for_tier.length &&
        bosses_for_tier[tier].length === 1)
-        ? capitalize(bosses_for_tier[tier][0])
+        ? fmt(bosses_for_tier[tier][0])
         : 'unknown';
 
   return `T${tier} ${boss}`;
