@@ -415,21 +415,21 @@ const reqs = {
 };
 
 const req_aliases = {
-  'g':        'gym',
-  'gs':       'ls-gyms',
-  'gyms':     'ls-gyms',
-  'r':        'raid',
-  'rs':       'ls-raids',
-  'raids':    'ls-raids',
-  'e':        'egg',
-  'b':        'boss',
-  'u':        'update',
-  'regions':  'ls-regions',
-  'search':      'search-gym',
-  'search-gyms': 'search-gym',
-  'call-time':   'call',
-  'cancel-time': 'cancel',
-  'uncall':   'cancel',
+  'g':            'gym',
+  'gs':           'ls-gyms',
+  'gyms':         'ls-gyms',
+  'r':            'raid',
+  'rs':           'ls-raids',
+  'raids':        'ls-raids',
+  'e':            'egg',
+  'b':            'boss',
+  'u':            'update',
+  'regions':      'ls-regions',
+  'search':       'search-gym',
+  'search-gyms':  'search-gym',
+  'call-time':    'call',
+  'uncall':       'cancel',
+  'j':            'join',
 };
 
 var raid_tiers = require('./raid-tiers.js');
