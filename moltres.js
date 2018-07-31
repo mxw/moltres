@@ -1664,7 +1664,7 @@ function handle_update(msg, handle, data) {
   let data_lower = data.toLowerCase();
 
   let assignment = function() {
-    let boss = data_lower;
+    let boss = boss_aliases[data_lower] || data_lower;
     if (boss in raid_tiers) {
       return {
         tier: raid_tiers[boss],
