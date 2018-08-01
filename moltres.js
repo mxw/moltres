@@ -1666,6 +1666,8 @@ function handle_boss(msg, handle, boss, timer) {
 function handle_update(msg, handle, data) {
   let data_lower = data.toLowerCase();
 
+  let now = get_now();
+
   let assignment = function() {
     let boss = boss_aliases[data_lower] || data_lower;
     if (boss in raid_tiers) {
@@ -1675,7 +1677,6 @@ function handle_update(msg, handle, data) {
       };
     }
 
-    let now = get_now();
     let despawn = parse_hour_minute(data);
     if (despawn !== null && despawn > now &&
         pop_from_despawn(despawn) <= now) {
@@ -1705,8 +1706,10 @@ function handle_update(msg, handle, data) {
 
   conn.query(
     'UPDATE raids INNER JOIN gyms ON raids.gym_id = gyms.id ' +
-    'SET ? WHERE ' + where_one_gym(handle),
-    [assignment],
+    '   SET ? ' +
+    '   WHERE ' + where_one_gym(handle) +
+    '     AND raids.despawn > ? ',
+    [assignment, now],
 
     mutation_handler(msg, function (msg, result) {
       log_invalid(msg,
