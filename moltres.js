@@ -855,6 +855,9 @@ function select_rsvps(xtra_where, xtra_values, handle, fn) {
 ///////////////////////////////////////////////////////////////////////////////
 // Time utilities.
 
+const egg_duration = 60;
+const boss_duration = 45;
+
 /*
  * Return a Date for the current time.
  */
@@ -923,12 +926,12 @@ function time_str_short(date) {
  */
 function pop_from_despawn(despawn) {
   let pop = new Date(despawn.getTime());
-  pop.setMinutes(pop.getMinutes() - 60 - 45);
+  pop.setMinutes(pop.getMinutes() - egg_duration - boss_duration);
   return pop;
 }
 function hatch_from_despawn(despawn) {
   let hatch = new Date(despawn.getTime());
-  hatch.setMinutes(hatch.getMinutes() - 45);
+  hatch.setMinutes(hatch.getMinutes() - boss_duration);
   return hatch;
 }
 
@@ -1594,7 +1597,7 @@ function handle_report(msg, handle, tier, boss, timer) {
     return log_invalid(msg, `Invalid MM:SS timer \`${timer.arg}\`.`);
   }
 
-  let egg_adjust = boss === null ? 45 : 0;
+  let egg_adjust = boss === null ? boss_duration : 0;
 
   let despawn = get_now();
   despawn.setMinutes(despawn.getMinutes() + timer.mins + egg_adjust);
@@ -1847,7 +1850,7 @@ function handle_call(msg, handle, call_time, extras) {
   // manual hatch/despawn time changes, we add a dummy second to all explicit
   // user-declared raid despawn times.
   let later = new Date(call_time.getTime());
-  later.setMinutes(later.getMinutes() + 46);
+  later.setMinutes(later.getMinutes() + boss_duration + 1);
 
   conn.query(
     'INSERT INTO calls (raid_id, caller, time) ' +
