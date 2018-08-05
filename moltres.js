@@ -1495,11 +1495,7 @@ hatch: ${time_str(hatch)}`;
     }
 
     if (raids.team) {
-      let team = raids.team;
-      if (team === 'mystic') team = 'mystake';
-      else if (team === 'instinct') team = 'instinkt';
-
-      output += `\nlast known team: ${get_emoji(team)}`;
+      output += `\nlast known team: ${get_emoji(raids.team)}`;
     }
 
     if (calls.time !== null && is_member(guild(), msg.author)) {
