@@ -32,6 +32,32 @@ module.exports = {
   // Discord ID of the designated log channel, e.g., #moltres_log.
   log_id: '302810502352155064',
 
+  // EX raid room configuration.
+  ex: {
+    // Channels to listen for EX-related requests in.
+    channels: new Set([
+      '249799275513811320',
+    ]),
+
+    // Discord ID of the EX raid room channel category.  This is an optional
+    // parameter; if it isn't provided, the EX channels will not belong to any
+    // category.  Note, however, that in this case, channels with names that
+    // resemble EX raid room names will confuse Moltres.
+    category: '335603638413579047',
+
+    // Array of permission override objects.  By default, the only permission
+    // override for the channel will be that @everyone cannot read messages.
+    // See the discord.js documentation for more details about the structure of
+    // this array.
+    //
+    // https://discord.js.org/#/docs/main/stable/typedef/ChannelCreationOverwrites
+    permissions: [{
+      id: '208609644688636289',
+      deny: ['USE_EXTERNAL_EMOJIS'],
+      allow: ['SEND_MESSAGES'],
+    }],
+  },
+
   // Map from string region names to region role string IDs.
   regions: {
     'Foobar Square': '217411278013305715',

@@ -6,10 +6,11 @@ const Arg = {
   STR: 1,
   INT: 2,
   VARIADIC: 3,
-  HOURMIN: 4,
-  TIMER: 5,
-  TIER: 6,
-  BOSS: 7,
+  MONTHDAY: 4,
+  HOURMIN: 5,
+  TIMER: 6,
+  TIER: 7,
+  BOSS: 8,
 };
 
 /*

@@ -76,7 +76,8 @@ const req_order = [
   'help', 'set-perm', 'test', 'reload-config', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
-  'call', 'cancel', 'change-time', 'join', 'unjoin',
+  'call', 'cancel', 'change-time', 'join', 'unjoin', null,
+  'ex', null,
 ];
 
 const req_to_perm = {
@@ -410,6 +411,25 @@ const reqs = {
       'galaxy': 'Unjoin the raid at **Galaxy: Earth Sphere**.  This ' +
                 'only works if there is only a single called time.',
       'galaxy 1:42': 'Unjoin the 1:42 p.m. raid at **Galaxy: Earth Sphere**.',
+    },
+  },
+
+  'ex': {
+    perms: Permission.BLACKLIST,
+    dm: false,
+    usage: '<gym-handle-or-name> [MM/DD]',
+    args: [Arg.VARIADIC, -Arg.MONTHDAY],
+    desc: 'Enter an EX raid room.',
+    detail: [
+      'This will create the room the first time it\'s used for a given EX',
+      'raid, so please be careful not to abuse it or mistype the date.',
+      'If a date is not provided, this just adds the user to an existing',
+      'room, or fails if one hasn\'t already been created.',
+    ],
+    examples: {
+      'jh 12/25': 'Enter (and maybe create) the EX raid room for **John ' +
+                  'Harvard Statue** on the upcoming Christmas Day.',
+      'jh': 'Enter the EX raid room for **John Harvard Statue**.',
     },
   },
 };
@@ -866,6 +886,25 @@ function get_now() {
 }
 
 /*
+ * Parse a date given by MM/DD as a Date object.
+ */
+function parse_month_day(date) {
+  let matches = date.match(/^(\d{1,2})\/(\d\d)$/);
+  if (matches === null) return null;
+
+  let [_, month, day] = matches;
+  [month, day] = [parseInt(month), parseInt(day)];
+
+  let now = get_now();
+
+  return new Date(
+    now.getFullYear() + (now.getMonth() === 12 && month === 1),
+    month - 1,
+    day
+  );
+}
+
+/*
  * Parse a time given by HH:MM as a Date object.
  *
  * This function uses rough heuristics to determine whether the user meant A.M.
@@ -905,6 +944,13 @@ function parse_hour_minute(time) {
 /*
  * Stringify a Date object according to our whims.
  */
+function date_str(date) {
+  return date.toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: '2-digit',
+  });
+}
 function time_str(date) {
   return date.toLocaleString('en-US', {
     timeZone: 'America/New_York',
@@ -913,7 +959,6 @@ function time_str(date) {
     hour12: true,
   });
 }
-
 function time_str_short(date) {
   let str = time_str(date);
   let pos = str.indexOf(' ');
@@ -977,6 +1022,8 @@ function parse_one_arg(input, kind) {
     }
     case Arg.VARIADIC:
       return input;
+    case Arg.MONTHDAY:
+      return parse_month_day(input);
     case Arg.HOURMIN:
       return parse_hour_minute(input);
     case Arg.TIMER:
@@ -2133,6 +2180,101 @@ function handle_unjoin(msg, handle, call_time) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// EX raid handlers.
+
+/*
+ * Build a canonical EX raid room name using a gym `handle' and raid `date'.
+ */
+function ex_room_name(handle, date) {
+  return (handle + '-' + date_str(date)).toLowerCase().replace(/\W/g, '-');
+}
+
+/*
+ * Create a channel `room_name' for an EX raid, then call `then' on it.
+ */
+function create_ex_room(room_name, then = null) {
+  let permissions = config.ex.permissions
+    // Make sure Moltres and all admins can modify the channel.
+    .concat([moltres.user.id, ...config.admin_ids].map(user_id => ({
+      id: user_id,
+      allow: ['VIEW_CHANNEL', 'MANAGE_CHANNELS', 'MANAGE_ROLES'],
+    })))
+    // Hide the channel from members who haven't entered this EX room.
+    .concat([{
+      id: guild().id,
+      deny: ['VIEW_CHANNEL'],
+    }]);
+
+  let promise = guild().createChannel(room_name, 'text', permissions)
+    .then(room => 'category' in config.ex
+      ? room.setParent(config.ex.category)
+      : room
+    );
+  if (then !== null) promise = promise.then(c => then(c));
+  return promise;
+}
+
+/*
+ * Add `user' to the EX raid room `room'.
+ */
+function enter_ex_room(user, room) {
+  return room.overwritePermissions(user, {VIEW_CHANNEL: true});
+}
+
+function handle_ex(msg, handle, date) {
+  if (date instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid MM/DD date \`${date.arg}\`.`);
+  }
+
+  conn.query(
+    'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
+
+    errwrap(msg, function (msg, results) {
+      if (!check_one_gym(msg, handle, results)) return;
+      let [gym] = results;
+
+      if (!gym.ex) {
+        return log_invalid(msg,
+          `${gym_name(gym)} is not an EX raid location.`
+        );
+      }
+
+      let room_re = new RegExp(`^${gym.handle}-\\w+-\\d\\d$`);
+
+      // We'd prefer to only search the channels in the category, but a bug in
+      // the current version of discord.js prevents the list of children from
+      // getting updated.
+      //
+      // let chan_list = 'category' in config.ex
+      //   ? moltres.channels.get(config.ex.category).children
+      //   : guild().channels;
+      let chan_list = guild().channels;
+
+      let room = chan_list.find(c => !!c.name.match(room_re));
+
+      if (room !== null) {
+        if (date !== null && room.name !== ex_room_name(gym.handle, date)) {
+          return log_invalid(msg,
+            `Incorrect EX raid date ${date_str(date)} for ${gym_name(gym)}.`
+          );
+        }
+        enter_ex_room(msg.author, room)
+          .catch(console.error);
+      } else {
+        if (date === null) {
+          return log_invalid(msg,
+            `Must provide a date for new EX raid at ${gym_name(gym)}.`
+          );
+        }
+        let room_name = ex_room_name(gym.handle, date);
+        create_ex_room(room_name, room => enter_ex_room(msg.author, room))
+          .catch(console.error);
+      }
+    })
+  );
+}
+
+///////////////////////////////////////////////////////////////////////////////
 
 /*
  * Do the work of `request'.
@@ -2166,6 +2308,8 @@ function handle_request(msg, request, argv) {
     case 'change-time': return handle_change_time(msg, ...argv);
     case 'join':      return handle_join(msg, ...argv);
     case 'unjoin':    return handle_unjoin(msg, ...argv);
+
+    case 'ex':        return handle_ex(msg, ...argv);
     default:
       return log_invalid(msg, `Invalid request \`${request}\`.`, true);
   }
@@ -2184,6 +2328,12 @@ function handle_request_with_check(msg, request, argv) {
 
   if (!is_admin && !req_meta.dm && msg.channel.type === 'dm') {
     return log_invalid(msg, `\`\$${request}\` can't be handled via DM`, true);
+  }
+
+  if (request.startsWith('ex') && !config.ex.channels.has(msg.channel.id)) {
+    return log_invalid(msg,
+      `\`\$${request}\` can't be handled from #${msg.channel.name}.`
+    );
   }
 
   if (is_admin || req_meta.perms === Permission.NONE) {
