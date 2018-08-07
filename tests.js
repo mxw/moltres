@@ -82,15 +82,15 @@ module.exports = {
     },
 
     { args: 'Galaxy: Earth Sphere 1',
-      spec: 'call-time',
+      spec: 'call',
       expect: ['Galaxy: Earth Sphere', new InvalidArg('1'), null],
     },
     { args: 'Galaxy: Earth Sphere 1:42',
-      spec: 'call-time',
+      spec: 'call',
       expect: ['Galaxy: Earth Sphere', '1:42', null],
     },
     { args: 'Galaxy: Earth Sphere 1:42 1',
-      spec: 'call-time',
+      spec: 'call',
       expect: ['Galaxy: Earth Sphere', '1:42', 1],
     },
 
