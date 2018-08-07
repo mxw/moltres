@@ -1460,9 +1460,18 @@ function handle_ls_regions(msg) {
       if (results.length === 0) {
         return send_quiet(msg.channel, 'No gyms have been registered.');
       }
+      let regions = new Set(results.map(gym => gym.region));
+
+      let region_strs = Object.keys(config.metaregions).map(meta => {
+        let subregions = config.metaregions[meta];
+        for (let sr of subregions) regions.delete(sr);
+        return `**${meta}** (_${subregions.join(', ')}_)`
+      }).concat(
+        [...regions].map(r => `**${r}**`)
+      ).sort();
 
       let output = 'List of **regions** with **registered gyms**:\n\n' +
-                   results.map(gym => gym.region).join('\n');
+                   region_strs.join('\n');
       return send_quiet(msg.channel, output);
     })
   );
