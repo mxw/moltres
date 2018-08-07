@@ -1848,10 +1848,24 @@ function get_all_raiders(msg, handle, time, fn) {
 }
 
 /*
+ * Set a delayed event for clearing the join cache for `handle' at `call_time'.
+ */
+function delay_join_cache_clear(handle, call_time) {
+  let delay = call_time - get_now();
+  if (delay <= 0) delay = 1;
+
+  setTimeout(() => { join_cache_set(handle, call_time, null); }, delay);
+}
+
+/*
  * Set a timeout to ping raiders for `handle' `before' minutes before
  * `call_time'.
  */
 function set_raid_alarm(msg, handle, call_time, before = 7) {
+  // This doesn't really belong here, but we set alarms every time we modify a
+  // call time, which is exactly when we want to make this guarantee.
+  delay_join_cache_clear(handle, call_time);
+
   let alarm_time = new Date(call_time.getTime());
   alarm_time.setMinutes(alarm_time.getMinutes() - before);
 
@@ -1872,15 +1886,6 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
       return send_quiet(msg.channel, output);
     });
   }, delay);
-
-  delay = call_time - get_now();
-  if (delay <= 0) delay = 1;
-
-  // Make sure we don't leak cached join messages.
-  //
-  // This doesn't really belong here, but we set alarms every time we modify a
-  // call time, which is exactly when we want to make this guarantee.
-  setTimeout(() => { join_cache_set(handle, call_time, null); }, delay);
 
   return log_impl(msg,
     `Setting alarm for \`[${handle}]\` at \`${time_str(alarm_time)}\`.`
