@@ -529,16 +529,20 @@ function is_member(guild, user) {
 /*
  * Wrapper around send() that chains messages and swallows exceptions.
  */
-function send_quiet_impl(channel, ...contents) {
+async function send_quiet_impl(channel, ...contents) {
   if (contents.length === 0) return;
   let [head, ...tail] = contents;
 
-  let promise = channel.send(head);
-
-  for (let item of tail) {
-    promise = promise.then(m => m.channel.send(item));
+  let message = null;
+  try {
+    message = await channel.send(head);
+    for (let item of tail) {
+      message = await message.channel.send(item);
+    }
+  } catch (e) {
+    console.error(e);
   }
-  return promise.catch(console.error);
+  return message;
 }
 
 /*
@@ -556,36 +560,51 @@ function send_quiet(channel, content) {
   }
   outvec.push(content);
 
-  send_quiet_impl(channel, ...outvec);
+  return send_quiet_impl(channel, ...outvec);
 }
-function dm_quiet(user, content) {
-  return user.createDM()
-    .then(dm => send_quiet(dm, content))
-    .catch(console.error);
+async function dm_quiet(user, content) {
+  try {
+    let dm = await user.createDM();
+    return send_quiet(dm, content);
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 /*
  * Send `content' to all the channels for `region'.
- *
- * Returns true if any channels were sent to, else false.
  */
 function send_for_region(region, content) {
   let channels = channels_for_region[region];
-  if (!channels) return false;
+  if (!channels) return;
+
+  let promises = [];
 
   for (let chan_id of channels) {
     let chan = moltres.channels.get(chan_id);
-    send_quiet(chan, content);
+    promises.push(send_quiet(chan, content));
   }
-  return true;
+  return Promise.all(promises);
 }
 
 /*
  * Try to delete a message if it's not on a DM channel.
  */
-function try_delete(msg, timeout = 0) {
+async function try_delete(msg, wait = 0) {
   if (msg.channel.type === 'dm') return;
-  msg.delete(timeout).catch(console.error);
+  try {
+    await msg.delete(wait);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/*
+ * Reply to a message via DM, then delete it.
+ */
+async function dm_reply_then_delete(msg, content, wait = 500) {
+  await dm_quiet(msg.author, content);
+  return try_delete(msg, wait);
 }
 
 /*
@@ -621,18 +640,21 @@ function get_emoji(name) {
 /*
  * Add reactions to `msg' in order.
  */
-function chain_reaccs(msg, ...reaccs) {
+async function chain_reaccs(msg, ...reaccs) {
   if (reaccs.length === 0) return;
   let [head, ...tail] = reaccs;
 
-  let emoji = get_emoji(head);
-  let promise = msg.react(emoji);
+  try {
+    let emoji = get_emoji(head);
+    let reaction = await msg.react(emoji);
 
-  for (let name of tail) {
-    let emoji = get_emoji(name);
-    promise = promise.then(r => r.message.react(emoji));
+    for (let name of tail) {
+      let emoji = get_emoji(name);
+      reaction = await reaction.message.react(emoji);
+    }
+  } catch (e) {
+    console.error(e);
   }
-  promise.catch(console.error);
 }
 
 /*
@@ -677,30 +699,32 @@ function total_mentions(msg) {
  * Log base function.
  */
 function log_impl(msg, str, reacc = null) {
+  let promises = [];
+
   if (str) {
     let log = moltres.channels.get(config.log_id);
-    send_quiet(log, `\t${str}`);
+    promises.push(send_quiet(log, `\t${str}`));
   }
-  if (reacc) chain_reaccs(msg, reacc);
+  if (reacc) promises.push(chain_reaccs(msg, reacc));
+
+  return Promise.all(promises);
 };
 
 /*
  * Log a successful request, an invalid request, or an internal error.
  */
 function react_success(msg, reacc = null) {
-  chain_reaccs(msg, reacc || 'approved');
+  return chain_reaccs(msg, reacc || 'approved');
 };
 function log_error(msg, str, reacc = null) {
-  log_impl(msg, str, reacc || 'no_good');
+  return log_impl(msg, str, reacc || 'no_good');
 };
-function log_invalid(msg, str, keep = false) {
-  log_impl(msg, str, null);
-
-  msg.author.createDM()
-    .then(dm => dm.send(str))
-    .catch(console.error);
-
-  if (!keep) try_delete(msg);
+async function log_invalid(msg, str, keep = false) {
+  await Promise.all([
+    log_impl(msg, str, null),
+    dm_quiet(msg.author, str),
+  ]);
+  if (!keep) await try_delete(msg);
 };
 
 /*
@@ -739,15 +763,18 @@ ${meta.detail.join(' ')}
  * MySQL handler which logs any error, or otherwise delegates to a callback.
  */
 function errwrap(msg, fn = null) {
-  return function (err, ...rest) {
+  return async function (err, ...rest) {
     if (err) {
       console.error(err);
       return log_error(msg, `MySQL error: ${err.code}.`);
     }
     if (fn !== null) {
-      refresh(msg)
-        .then(m => fn(m, ...rest))
-        .catch(console.error);
+      try {
+        msg = await refresh(msg);
+        return await fn(msg, ...rest);
+      } catch (e) {
+        console.error(e);
+      }
     }
   };
 }
@@ -772,13 +799,12 @@ function mutation_handler(msg, failure = null, success = null) {
      * }
      */
     if (result.affectedRows === 0) {
-      if (failure !== null) failure(msg, result);
+      if (failure !== null) return failure(msg, result);
     } else {
       if (success !== null) {
-        success(msg, result);
-      } else {
-        react_success(msg);
+        return success(msg, result);
       }
+      return react_success(msg);
     }
   })
 }
@@ -1209,12 +1235,12 @@ function handle_help(msg, req) {
     }
     out = `\`\$${req}\`:  ${reqs[req].desc}\n\n${usage_string(req)}`;
   }
+  out = out.trim();
 
   if (config.admin_ids.has(msg.author.id)) {
-    send_quiet(msg.channel, out.trim());
+    return send_quiet(msg.channel, out.trim());
   } else {
-    dm_quiet(msg.author, out.trim());
-    try_delete(msg, 500);
+    return dm_reply_then_delete(msg, out);
   }
 }
 
@@ -1237,7 +1263,7 @@ function handle_reload_config(msg) {
   config = require('./config.js');
   raid_tiers = require('./raid-tiers.js');
   bosses_for_tier = compute_tier_boss_map();
-  react_success(msg);
+  return react_success(msg);
 }
 
 function handle_test(msg, args) {
@@ -1292,13 +1318,16 @@ function handle_test(msg, args) {
  *
  * Returns true if we have a single result, else false.
  */
-function check_one_gym(msg, handle, results) {
+async function check_one_gym(msg, handle, results) {
   if (results.length < 1) {
-    chain_reaccs(msg, 'cry');
-    send_quiet(msg.channel, `No unique gym match found for \`[${handle}]\`.`);
+    await send_quiet(msg.channel,
+      `No unique gym match found for \`[${handle}]\`.`
+    );
     return false;
   } else if (results.length > 1) {
-    send_quiet(msg.channel, `Multiple gyms matching \`[${handle}]\`.`);
+    await send_quiet(msg.channel,
+      `Multiple gyms matching \`[${handle}]\`.`
+    );
     return false;
   }
   return true;
@@ -1347,11 +1376,12 @@ function handle_gym(msg, handle) {
   conn.query(
     'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
 
-    errwrap(msg, function (msg, results) {
-      if (!check_one_gym(msg, handle, results)) return;
+    errwrap(msg, async function (msg, results) {
+      let found_one = await check_one_gym(msg, handle, results);
+      if (!found_one) return;
       let [gym] = results;
 
-      send_quiet(msg.channel, gym_row_to_string(gym));
+      return send_quiet(msg.channel, gym_row_to_string(gym));
     })
   );
 }
@@ -1378,7 +1408,7 @@ function handle_ls_gyms(msg, region) {
       }
 
       let output = `Gyms in **${out_region}**:\n\n` + gym_list;
-      send_quiet(msg.channel, output);
+      return send_quiet(msg.channel, output);
     })
   );
 }
@@ -1398,7 +1428,7 @@ function handle_search_gym(msg, name) {
       }
 
       let output = `Gyms matching \`${name}\`:\n\n` + list_gyms(results);
-      send_quiet(msg.channel, output);
+      return send_quiet(msg.channel, output);
     })
   );
 }
@@ -1433,7 +1463,7 @@ function handle_ls_regions(msg) {
 
       let output = 'List of **regions** with **registered gyms**:\n\n' +
                    results.map(gym => gym.region).join('\n');
-      send_quiet(msg.channel, output);
+      return send_quiet(msg.channel, output);
     })
   );
 }
@@ -1462,9 +1492,9 @@ function fmt_tier_boss(raid) {
 function handle_raid(msg, handle) {
   let now = get_now();
 
-  select_rsvps('', [], handle, errwrap(msg, function (msg, results) {
+  select_rsvps('', [], handle, errwrap(msg, async function (msg, results) {
     if (results.length < 1) {
-      chain_reaccs(msg, 'no_entry_sign');
+      await chain_reaccs(msg, 'no_entry_sign');
       return send_quiet(msg.channel,
         `No unique raid found for \`[${handle}]\`.`
       );
@@ -1555,7 +1585,7 @@ hatch: ${time_str(hatch)}`;
       }
     }
 
-    send_quiet(msg.channel, output);
+    return send_quiet(msg.channel, output);
   }));
 }
 
@@ -1621,10 +1651,9 @@ function handle_ls_raids(msg, region) {
       }
     }
     if (region !== null || config.admin_ids.has(msg.author.id)) {
-      send_quiet(msg.channel, output);
+      return send_quiet(msg.channel, output);
     } else {
-      dm_quiet(msg.author, output);
-      try_delete(msg, 500);
+      return dm_reply_then_delete(msg, output);
     }
   }));
 }
@@ -1661,7 +1690,7 @@ function handle_report(msg, handle, tier, boss, timer) {
     [tier, boss, despawn, msg.author.id, pop],
 
     mutation_handler(msg, function (msg, result) {
-      log_invalid(msg,
+      return log_invalid(msg,
         `No unique gym match found for \`[${handle}]\` that doesn't ` +
         'already have an active raid.'
       );
@@ -1670,8 +1699,9 @@ function handle_report(msg, handle, tier, boss, timer) {
       conn.query(
         'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
 
-        errwrap(msg, function (msg, results) {
-          if (!check_one_gym(msg, handle, results)) return;
+        errwrap(msg, async function (msg, results) {
+          let found_one = await check_one_gym(msg, handle, results);
+          if (!found_one) return;
           let [gym] = results;
 
           let output = function() {
@@ -1687,8 +1717,8 @@ function handle_report(msg, handle, tier, boss, timer) {
           }();
           output += `(reported by ${msg.author}).`;
 
-          send_for_region(gym.region, output);
-          try_delete(msg, 10000);
+          await send_for_region(gym.region, output);
+          return try_delete(msg, 10000);
         })
       );
     })
@@ -1696,14 +1726,14 @@ function handle_report(msg, handle, tier, boss, timer) {
 }
 
 function handle_egg(msg, handle, tier, timer) {
-  handle_report(msg, handle, tier, null, timer);
+  return handle_report(msg, handle, tier, null, timer);
 }
 
 function handle_boss(msg, handle, boss, timer) {
   if (boss === null) {
     return log_invalid(msg, `Unrecognized raid boss \`${boss}\`.`);
   }
-  handle_report(msg, handle, raid_tiers[boss], boss, timer);
+  return handle_report(msg, handle, raid_tiers[boss], boss, timer);
 }
 
 function handle_update(msg, handle, data) {
@@ -1755,7 +1785,7 @@ function handle_update(msg, handle, data) {
     [assignment, now],
 
     mutation_handler(msg, function (msg, result) {
-      log_invalid(msg,
+      return log_invalid(msg,
         `No unique gym match found for \`[${handle}]\` with an active raid.`
       );
     })
@@ -1768,8 +1798,9 @@ function handle_scrub(msg, handle) {
     '   gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
     '   WHERE ' + where_one_gym(handle),
 
-    errwrap(msg, function (msg, results) {
-      if (!check_one_gym(msg, handle, results)) return;
+    errwrap(msg, async function (msg, results) {
+      let found_one = await check_one_gym(msg, handle, results);
+      if (!found_one) return;
       let [raid] = results;
 
       conn.query(
@@ -1780,7 +1811,7 @@ function handle_scrub(msg, handle) {
           let spotter = guild().members.get(raid.spotter);
           if (!spotter) return;
 
-          send_quiet(msg.channel,
+          return send_quiet(msg.channel,
             `${get_emoji('banned')} Raid reported by ${spotter} ` +
             `at ${gym_name(raid)} was scrubbed.`
           );
@@ -1811,7 +1842,7 @@ function get_all_raiders(msg, handle, time, fn) {
           extras: row.rsvps.extras,
         });
       }
-      fn(msg, results[0], raiders);
+      return fn(msg, results[0], raiders);
     })
   );
 }
@@ -1827,10 +1858,6 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
   let delay = alarm_time - get_now();
   if (delay <= 0) return;
 
-  log_impl(msg,
-    `Setting alarm for \`[${handle}]\` at \`${time_str(alarm_time)}\`.`
-  );
-
   setTimeout(function() {
     get_all_raiders(msg, handle, call_time, function (msg, row, raiders) {
       // The call time might have changed, or everyone may have unjoined.
@@ -1842,7 +1869,7 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
         `at \`${time_str(call_time)}\` is in ${before} minutes!` +
         `\n\n${raiders.map(r => r.member.user).join(' ')} ` +
         `(${raiders.reduce((sum, r) => sum + 1 + r.extras, 0)} raiders)`;
-      send_quiet(msg.channel, output);
+      return send_quiet(msg.channel, output);
     });
   }, delay);
 
@@ -1854,6 +1881,10 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
   // This doesn't really belong here, but we set alarms every time we modify a
   // call time, which is exactly when we want to make this guarantee.
   setTimeout(() => { join_cache_set(handle, call_time, null); }, delay);
+
+  return log_impl(msg,
+    `Setting alarm for \`[${handle}]\` at \`${time_str(alarm_time)}\`.`
+  );
 }
 
 /*
@@ -1908,7 +1939,7 @@ function handle_call(msg, handle, call_time, extras) {
     [msg.author.id, call_time, call_time, later],
 
     mutation_handler(msg, function (msg, result) {
-      log_invalid(msg,
+      return log_invalid(msg,
         `Could not find a unique raid for \`[${handle}]\` with call time ` +
         `\`${time}\` after hatch and before despawn (or this time has ` +
         `already been called).`
@@ -1930,8 +1961,9 @@ function handle_call(msg, handle, call_time, extras) {
         'SELECT * FROM gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
         '   WHERE ' + where_one_gym(handle),
 
-        errwrap(msg, function (msg, results) {
-          if (!check_one_gym(msg, handle, results)) return;
+        errwrap(msg, async function (msg, results) {
+          let found_one = await check_one_gym(msg, handle, results);
+          if (!found_one) return;
           let [raid] = results;
 
           let region_str = function() {
@@ -1950,9 +1982,11 @@ function handle_call(msg, handle, call_time, extras) {
             `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
             `\n\nTo join this raid time, enter ` +
             `\`$join ${raid.handle} ${time}\`.`;
-          send_for_region(raid.region, output);
 
-          set_raid_alarm(msg, raid.handle, call_time);
+          return Promise.all([
+            send_for_region(raid.region, output),
+            set_raid_alarm(msg, raid.handle, call_time),
+          ]);
         })
       );
     })
@@ -1965,7 +1999,7 @@ function handle_cancel(msg, handle, call_time) {
   }
 
   let fail = function(msg) {
-    log_invalid(msg,
+    return log_invalid(msg,
       `Could not find a single raid time for \`[${handle}]\`` +
       (!!call_time
         ? ` with called time \`${time_str(call_time)}\`.`
@@ -1998,7 +2032,7 @@ function handle_cancel(msg, handle, call_time) {
         if (raiders.length !== 0) {
           output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
         }
-        send_for_region(gyms.region, output);
+        return send_for_region(gyms.region, output);
       })
     );
   });
@@ -2036,7 +2070,7 @@ function handle_change_time(msg, handle, current, to, desired) {
     [assignment, desired, later, current],
 
     mutation_handler(msg, function (msg, result) {
-      log_invalid(msg,
+      return log_invalid(msg,
         `No raid at \`${time_str(current)}\` found for \`[${handle}]\` ` +
         `(or \`${time_str(desired)}\` is not a valid raid time).`
       );
@@ -2063,9 +2097,10 @@ function handle_change_time(msg, handle, current, to, desired) {
         if (raiders.length !== 0) {
           output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
         }
-        send_quiet(msg.channel, output);
-
-        set_raid_alarm(msg, handle, desired);
+        return Promise.all([
+          send_quiet(msg.channel, output),
+          set_raid_alarm(msg, handle, desired),
+        ]);
       });
     })
   );
@@ -2092,28 +2127,18 @@ function handle_join(msg, handle, call_time, extras) {
     [msg.author.id, extras, false],
 
     mutation_handler(msg, function (msg, result) {
-      log_invalid(msg,
+      return log_invalid(msg,
         `Could not find a single raid time to join for \`[${handle}]\`` +
         (!!call_time
           ? ` with called time \`${time_str(call_time)}\`.`
           : '.  Either none or multiple have been called.')
       );
     }, function (msg, result) {
-      get_all_raiders(msg, handle, call_time, function (msg, row, raiders) {
+      get_all_raiders(msg, handle, call_time, async (msg, row, raiders) => {
         // The call time might have changed, or everyone may have unjoined.
         if (row === null || raiders.length === 0) return;
         let {gyms, raids, calls} = row;
         let handle = gyms.handle;
-
-        // Clear any existing join message for this raid.
-        let clear_join_msg = function() {
-          let prev = join_cache_get(handle, calls.time);
-          if (prev) {
-            try_delete(prev);
-            join_cache_set(handle, calls.time, null);
-          }
-        };
-        clear_join_msg();
 
         raiders = raiders.filter(r => r.member.id != msg.author.id);
 
@@ -2139,15 +2164,21 @@ function handle_join(msg, handle, call_time, extras) {
           output += `\`$join ${handle}\`.`;
         }
 
-        msg.channel.send(output)
-          .then(join_msg => {
-            // Delete the $join request, delete any previous join message, and
-            // cache this one for potential later deletion.
-            try_delete(msg, 3000);
-            clear_join_msg();
-            join_cache_set(handle, calls.time, join_msg);
-          })
-          .catch(console.error);
+        let join_msg = await send_quiet(msg.channel, output);
+
+        // Clear any existing join message for this raid.
+        let replace_prev_msg = function() {
+          let prev = join_cache_get(handle, calls.time);
+          join_cache_set(handle, calls.time, join_msg);
+          if (prev) return try_delete(prev);
+        };
+
+        // Delete the $join request, delete any previous join message, and
+        // cache this one for potential later deletion.
+        return Promise.all([
+          replace_prev_msg(),
+          try_delete(msg, 3000),
+        ]);
       });
     })
   );
@@ -2166,11 +2197,11 @@ function handle_unjoin(msg, handle, call_time) {
     [msg.author.id],
 
     mutation_handler(msg, function (msg, result) {
-      log_invalid(msg,
+      return log_invalid(msg,
         `Couldn't find a unique raid for \`[${handle}]\` that you joined.`
       );
     }, function (msg, result) {
-      react_success(msg, 'cry');
+      return react_success(msg, 'cry');
     })
   );
 }
@@ -2186,9 +2217,9 @@ function ex_room_name(handle, date) {
 }
 
 /*
- * Create a channel `room_name' for an EX raid, then call `then' on it.
+ * Create a channel `room_name' for an EX raid.
  */
-function create_ex_room(room_name, then = null) {
+async function create_ex_room(room_name) {
   let permissions = config.ex.permissions
     // Make sure Moltres and all admins can modify the channel.
     .concat([moltres.user.id, ...config.admin_ids].map(user_id => ({
@@ -2201,13 +2232,11 @@ function create_ex_room(room_name, then = null) {
       deny: ['VIEW_CHANNEL'],
     }]);
 
-  let promise = guild().createChannel(room_name, 'text', permissions)
-    .then(room => 'category' in config.ex
-      ? room.setParent(config.ex.category)
-      : room
-    );
-  if (then !== null) promise = promise.then(c => then(c));
-  return promise;
+  let room = await guild().createChannel(room_name, 'text', permissions);
+  if ('category' in config.ex) {
+    room = await room.setParent(config.ex.category);
+  }
+  return room;
 }
 
 /*
@@ -2225,8 +2254,9 @@ function handle_ex(msg, handle, date) {
   conn.query(
     'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
 
-    errwrap(msg, function (msg, results) {
-      if (!check_one_gym(msg, handle, results)) return;
+    errwrap(msg, async function (msg, results) {
+      let found_one = await check_one_gym(msg, handle, results);
+      if (!found_one) return;
       let [gym] = results;
 
       if (!gym.ex) {
@@ -2254,8 +2284,6 @@ function handle_ex(msg, handle, date) {
             `Incorrect EX raid date ${date_str(date)} for ${gym_name(gym)}.`
           );
         }
-        enter_ex_room(msg.author, room)
-          .catch(console.error);
       } else {
         if (date === null) {
           return log_invalid(msg,
@@ -2263,9 +2291,9 @@ function handle_ex(msg, handle, date) {
           );
         }
         let room_name = ex_room_name(gym.handle, date);
-        create_ex_room(room_name, room => enter_ex_room(msg.author, room))
-          .catch(console.error);
+        room = await create_ex_room(room_name);
       }
+      return enter_ex_room(msg.author, room);
     })
   );
 }
@@ -2275,7 +2303,7 @@ function handle_ex(msg, handle, date) {
 /*
  * Do the work of `request'.
  */
-function handle_request(msg, request, argv) {
+async function handle_request(msg, request, argv) {
   if (argv.length === 1 && argv[0] === 'help') {
     return handle_help(msg, [request]);
   }
@@ -2315,7 +2343,7 @@ function handle_request(msg, request, argv) {
  * Check whether the user who sent `msg' has the proper permissions to make
  * `request', and make it if so.
  */
-function handle_request_with_check(msg, request, argv) {
+async function handle_request_with_check(msg, request, argv) {
   let user_id = msg.author.id;
 
   let req_meta = reqs[request];
@@ -2340,7 +2368,7 @@ function handle_request_with_check(msg, request, argv) {
     'SELECT * FROM permissions WHERE (cmd = ? AND user_id = ?)',
     [req_to_perm[request] || request, user_id],
 
-    errwrap(msg, function (msg, results) {
+    errwrap(msg, async function (msg, results) {
       let permitted =
         (results.length === 1 && req_meta.perms === Permission.WHITELIST) ||
         (results.length === 0 && req_meta.perms === Permission.BLACKLIST);
@@ -2359,7 +2387,7 @@ function handle_request_with_check(msg, request, argv) {
 /*
  * Process a user request.
  */
-function process_request(msg) {
+async function process_request(msg) {
   if (msg.content.charAt(0) !== '$') return;
   let args = msg.content.substr(1);
 
@@ -2376,7 +2404,7 @@ function process_request(msg) {
 
   let log = moltres.channels.get(config.log_id);
   let output = `[${msg.author.tag}] \`\$${req}\` ${args}`;
-  send_quiet(log, output);
+  await send_quiet(log, output);
 
   req = req_aliases[req] || req;
   if (!(req in reqs)) {
@@ -2388,7 +2416,7 @@ function process_request(msg) {
     return log_invalid(msg, usage_string(req));
   }
 
-  handle_request_with_check(msg, req, argv);
+  return handle_request_with_check(msg, req, argv);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2396,11 +2424,11 @@ function process_request(msg) {
 /*
  * Main reader event.
  */
-moltres.on('message', msg => {
+moltres.on('message', async msg => {
   if (msg.channel.id in config.channels ||
       msg.channel.type === 'dm') {
     try {
-      process_request(msg);
+      await process_request(msg);
     } catch (e) {
       console.error(e);
     }
