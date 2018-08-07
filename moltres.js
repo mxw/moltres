@@ -490,14 +490,17 @@ function compute_region_channel_map() {
     for (let region of regions) {
       if (region in config.metaregions) {
         for (let subregion of config.metaregions[region]) {
-          ret[subregion] = ret[subregion] || [];
-          ret[subregion].push(chan);
+          ret[subregion] = ret[subregion] || new Set();
+          ret[subregion].add(chan);
         }
       } else {
-        ret[region] = ret[region] || [];
-        ret[region].push(chan);
+        ret[region] = ret[region] || new Set();
+        ret[region].add(chan);
       }
     }
+  }
+  for (let region in ret) {
+    ret[region] = [...ret[region]];
   }
   return ret;
 }
