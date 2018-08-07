@@ -578,13 +578,10 @@ function send_for_region(region, content) {
   let channels = channels_for_region[region];
   if (!channels) return;
 
-  let promises = [];
-
-  for (let chan_id of channels) {
+  return Promise.all(channels.map(chan_id => {
     let chan = moltres.channels.get(chan_id);
-    promises.push(send_quiet(chan, content));
-  }
-  return Promise.all(promises);
+    return send_quiet(chan, content);
+  }));
 }
 
 /*
@@ -1811,7 +1808,7 @@ function handle_scrub(msg, handle) {
           let spotter = guild().members.get(raid.spotter);
           if (!spotter) return;
 
-          return send_quiet(msg.channel,
+          return send_for_region(raid.region,
             `${get_emoji('banned')} Raid reported by ${spotter} ` +
             `at ${gym_name(raid)} was scrubbed.`
           );
@@ -1883,7 +1880,8 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
         `at \`${time_str(call_time)}\` is in ${before} minutes!` +
         `\n\n${raiders.map(r => r.member.user).join(' ')} ` +
         `(${raiders.reduce((sum, r) => sum + 1 + r.extras, 0)} raiders)`;
-      return send_quiet(msg.channel, output);
+
+      return send_for_region(row.gyms.region, output);
     });
   }, delay);
 
@@ -1900,9 +1898,9 @@ let join_cache = {};
 function join_cache_get(handle, time) {
   return join_cache[handle + time.getTime()];
 }
-function join_cache_set(handle, time, msg) {
-  if (msg) {
-    join_cache[handle + time.getTime()] = msg;
+function join_cache_set(handle, time, messages) {
+  if (messages) {
+    join_cache[handle + time.getTime()] = messages;
   } else {
     delete join_cache[handle + time.getTime()];
   }
@@ -2103,7 +2101,7 @@ function handle_change_time(msg, handle, current, to, desired) {
           output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
         }
         return Promise.all([
-          send_quiet(msg.channel, output),
+          send_for_region(row.gyms.region, output),
           set_raid_alarm(msg, handle, desired),
         ]);
       });
@@ -2169,13 +2167,15 @@ function handle_join(msg, handle, call_time, extras) {
           output += `\`$join ${handle}\`.`;
         }
 
-        let join_msg = await send_quiet(msg.channel, output);
+        let join_msgs = await send_for_region(gyms.region, output);
 
         // Clear any existing join message for this raid.
         let replace_prev_msg = function() {
           let prev = join_cache_get(handle, calls.time);
-          join_cache_set(handle, calls.time, join_msg);
-          if (prev) return try_delete(prev);
+          join_cache_set(handle, calls.time, join_msgs);
+          if (prev) {
+            return Promise.all(prev.map(join => try_delete(join)));
+          }
         };
 
         // Delete the $join request, delete any previous join message, and
