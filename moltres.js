@@ -77,7 +77,7 @@ const req_order = [
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
-  'ex',
+  'ex', 'exit', 'ex-ls',
 ];
 
 const req_to_perm = {
@@ -432,6 +432,30 @@ const reqs = {
       'jh': 'Enter the EX raid room for **John Harvard Statue**.',
     },
   },
+  'exit': {
+    perms: Permission.BLACKLIST,
+    dm: false,
+    usage: '',
+    args: [],
+    desc: 'Exit the EX raid room you\'re in.',
+    detail: [
+      'Can only be used from EX raid rooms.',
+    ],
+    examples: {
+    },
+  },
+  'ex-ls': {
+    perms: Permission.BLACKLIST,
+    dm: false,
+    usage: '',
+    args: [],
+    desc: 'List all EX raiders in the current EX raid room.',
+    detail: [
+      'Can only be used from EX raid rooms.',
+    ],
+    examples: {
+    },
+  },
 };
 
 const req_aliases = {
@@ -554,12 +578,14 @@ async function send_quiet_impl(channel, ...contents) {
 function send_quiet(channel, content) {
   let outvec = [];
 
-  while (content.length >= 2000) {
-    let split_pos = content.lastIndexOf('\n', 2000);
-    if (split_pos === -1) split_pos = 2000;
+  if (typeof content === 'string') {
+    while (content.length >= 2000) {
+      let split_pos = content.lastIndexOf('\n', 2000);
+      if (split_pos === -1) split_pos = 2000;
 
-    outvec.push(content.substr(0, split_pos));
-    content = content.substr(split_pos);
+      outvec.push(content.substr(0, split_pos));
+      content = content.substr(split_pos);
+    }
   }
   outvec.push(content);
 
@@ -621,11 +647,14 @@ const emoji_by_name = {
   alarm_clock: '⏰',
   clock230: '🕝',
   cry: '😢',
-  gem: '💎',
+  dash: '💨',
+  door: '🚪',
   dragon: '🐉',
+  gem: '💎',
   no_entry_sign: '🚫',
   no_good: '🙅',
   thinking: '🤔',
+  walking: '🚶',
   whale: '🐳',
 };
 
@@ -2232,6 +2261,9 @@ function handle_unjoin(msg, handle, call_time) {
 ///////////////////////////////////////////////////////////////////////////////
 // EX raid handlers.
 
+const ex_room_regex = /^.*-\w+-\d\d/;
+const ex_room_capture = /^(.*)-(\w+)-(\d\d)/;
+
 /*
  * Build a canonical EX raid room name using a gym `handle' and raid `date'.
  */
@@ -2268,10 +2300,46 @@ async function create_ex_room(room_name) {
 }
 
 /*
- * Add `user' to the EX raid room `room'.
+ * Add or remove `user' to/from the EX raid room `room'.
  */
 function enter_ex_room(user, room) {
   return room.overwritePermissions(user, {VIEW_CHANNEL: true});
+}
+function exit_ex_room(user, room) {
+  return room.permissionOverwrites.get(user.id).delete();
+}
+
+/*
+ * Return whether `msg' was sent from an EX raid room.
+ */
+function from_ex_room(msg) {
+  if (msg.channel.type === 'dm') return false;
+
+  if ('category' in config.ex) {
+    return msg.channel.parentID === config.ex.category;
+  }
+  // Guess based on the format of EX room names.
+  return !!msg.channel.name.match(ex_room_regex);
+}
+
+/*
+ * Obtain a list of everyone who has entered an EX raid room.
+ *
+ * This is done by inspecting all the permission overwrites for users who were
+ * not added to the room by Moltres configuration.
+ */
+function ex_raiders(room) {
+  let uids = new Set([...room.permissionOverwrites.keys()]);
+
+  for (let overwrite of config.ex.permissions) {
+    uids.delete(overwrite.id);
+  }
+  uids.delete(guild().id);
+  uids.delete(moltres.user.id);
+
+  uids = [...uids].filter(id => !guild().roles.get(id));
+
+  return Promise.all([...uids].map(id => moltres.fetchUser(id)));
 }
 
 function handle_ex(msg, handle, date) {
@@ -2326,6 +2394,36 @@ function handle_ex(msg, handle, date) {
   );
 }
 
+async function handle_exit(msg) {
+  // If a user has a permission overwrite, they're in the room.
+  let in_room = !!msg.channel.permissionOverwrites.get(msg.author.id);
+
+  if (!in_room) {
+    return log_invalid(msg,
+      `You have not entered the EX room #${msg.channel.name}`
+    );
+  }
+  await exit_ex_room(msg.author, msg.channel);
+  return chain_reaccs(msg, 'door', 'walking', 'dash');
+}
+
+async function handle_ex_ls(msg) {
+  let users_promise = ex_raiders(msg.channel);
+
+  let [_, handle, month, day] = msg.channel.name.match(ex_room_capture);
+  month = capitalize(month);
+  day = parseInt(day);
+
+  let users = await users_promise;
+
+  return send_quiet(msg.channel, {
+    embed: new Discord.RichEmbed()
+      .setTitle(`**List of EX raiders** for \`${handle}\` on ${month} ${day}`)
+      .setDescription(users.map(user => user.tag).join('\n'))
+      .setColor('RED')
+  });
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 /*
@@ -2362,6 +2460,8 @@ async function handle_request(msg, request, argv) {
     case 'unjoin':    return handle_unjoin(msg, ...argv);
 
     case 'ex':        return handle_ex(msg, ...argv);
+    case 'exit':      return handle_exit(msg, ...argv);
+    case 'ex-ls':     return handle_ex_ls(msg, ...argv);
     default:
       return log_invalid(msg, `Invalid request \`${request}\`.`, true);
   }
@@ -2382,10 +2482,13 @@ async function handle_request_with_check(msg, request, argv) {
     return log_invalid(msg, `\`\$${request}\` can't be handled via DM`, true);
   }
 
-  if (request.startsWith('ex') && !config.ex.channels.has(msg.channel.id)) {
-    return log_invalid(msg,
-      `\`\$${request}\` can't be handled from #${msg.channel.name}.`
-    );
+  if (request.startsWith('ex')) {
+    if ((request === 'ex' && !config.ex.channels.has(msg.channel.id)) ||
+        (request !== 'ex' && !from_ex_room(msg))) {
+      return log_invalid(msg,
+        `\`\$${request}\` can't be handled from #${msg.channel.name}.`
+      );
+    }
   }
 
   if (is_admin || req_meta.perms === Permission.NONE) {
@@ -2458,7 +2561,8 @@ _Channel:_  #${msg.channel.type === 'dm' ? '[dm]' : msg.channel.name}`;
  */
 moltres.on('message', async msg => {
   if (msg.channel.id in config.channels ||
-      msg.channel.type === 'dm') {
+      msg.channel.type === 'dm' ||
+      from_ex_room(msg)) {
     try {
       await process_request(msg);
     } catch (e) {

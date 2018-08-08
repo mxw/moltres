@@ -45,10 +45,14 @@ module.exports = {
     // resemble EX raid room names will confuse Moltres.
     category: '335603638413579047',
 
-    // Array of permission override objects.  By default, the only permission
-    // override for the channel will be that @everyone cannot read messages.
+    // Array of permission overwrite objects.  By default, the only permission
+    // overwrite for the channel will be that @everyone cannot read messages.
     // See the discord.js documentation for more details about the structure of
     // this array.
+    //
+    // Moltres uses the existence of permission overwrites for a specific user
+    // as an indicator of whether the user is present in the room, so be
+    // careful of adding user-specific overwrites here.
     //
     // https://discord.js.org/#/docs/main/stable/typedef/ChannelCreationOverwrites
     permissions: [{
