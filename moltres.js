@@ -702,8 +702,12 @@ function log_impl(msg, str, reacc = null) {
   let promises = [];
 
   if (str) {
+    if (str.startsWith('**Usage**')) {
+      // Truncate usage strings.
+      str = 'Usage: [...]';
+    }
     let log = moltres.channels.get(config.log_id);
-    promises.push(send_quiet(log, `\t${str}`));
+    promises.push(send_quiet(log, `_Error:_  ${str}`));
   }
   if (reacc) promises.push(chain_reaccs(msg, reacc));
 
@@ -766,7 +770,9 @@ function errwrap(msg, fn = null) {
   return async function (err, ...rest) {
     if (err) {
       console.error(err);
-      return log_error(msg, `MySQL error: ${err.code}.`);
+      return log_error(msg,
+        `MySQL error: ${err.code} (${err.errno}): ${err.sqlMessage})`
+      );
     }
     if (fn !== null) {
       try {
@@ -2420,7 +2426,11 @@ async function process_request(msg) {
   }
 
   let log = moltres.channels.get(config.log_id);
-  let output = `[${msg.author.tag}] \`\$${req}\` ${args}`;
+  let output = `\`\$${req}\` ${args}
+_Time:_  ${get_now().toLocaleString('en-US', {timeZone: 'America/New_York'})}
+_User:_  ${msg.author.tag}
+_Channel:_  #${msg.channel.type === 'dm' ? '[dm]' : msg.channel.name}`;
+
   await send_quiet(log, output);
 
   req = req_aliases[req] || req;
