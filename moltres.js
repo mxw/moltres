@@ -476,14 +476,9 @@ const req_aliases = {
   'j':            'join',
 };
 
-var raid_tiers = require('./raid-tiers.js');
+var raid_data = require('./raid-data.js');
+var {raid_tiers, boss_aliases} = raid_data;
 var bosses_for_tier = compute_tier_boss_map();
-
-const boss_aliases = {
-  ttar: 'tyranitar',
-  tall: 'alolan-exeggutor',
-  'tall-eggtree': 'alolan-exeggutor',
-};
 
 const gyaoo = 'Gyaoo!';
 
@@ -1296,7 +1291,9 @@ function handle_set_perm(msg, user_tag, req) {
 
 function handle_reload_config(msg) {
   config = require('./config.js');
-  raid_tiers = require('./raid-tiers.js');
+  raid_data = require('./raid-data.js');
+  raid_tiers = raid_data.raid_tiers;
+  boss_aliases = raid_data.boss_aliases;
   bosses_for_tier = compute_tier_boss_map();
   return react_success(msg);
 }
