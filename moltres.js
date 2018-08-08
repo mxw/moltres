@@ -2247,7 +2247,12 @@ async function create_ex_room(room_name) {
     // Make sure Moltres and all admins can modify the channel.
     .concat([moltres.user.id, ...config.admin_ids].map(user_id => ({
       id: user_id,
-      allow: ['VIEW_CHANNEL', 'MANAGE_CHANNELS', 'MANAGE_ROLES'],
+      allow: [
+        'VIEW_CHANNEL',
+        'MANAGE_CHANNELS',
+        'MANAGE_ROLES',
+        'MANAGE_MESSAGES',
+      ],
     })))
     // Hide the channel from members who haven't entered this EX room.
     .concat([{
