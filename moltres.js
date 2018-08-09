@@ -2281,6 +2281,18 @@ function ex_room_name(handle, date) {
 }
 
 /*
+ * Extract the gym handle, month, and day from an EX raid room name.
+ */
+function ex_room_components(room_name) {
+  let [_, handle, month, day] = room_name.match(ex_room_capture);
+  return {
+    handle: handle,
+    month: capitalize(month),
+    day: parseInt(day),
+  };
+}
+
+/*
  * Create a channel `room_name' for an EX raid.
  */
 async function create_ex_room(room_name) {
@@ -2417,17 +2429,15 @@ async function handle_exit(msg) {
 }
 
 async function handle_ex_ls(msg) {
-  let users_promise = ex_raiders(msg.channel);
+  let ex = ex_room_components(msg.channel.name);
 
-  let [_, handle, month, day] = msg.channel.name.match(ex_room_capture);
-  month = capitalize(month);
-  day = parseInt(day);
-
-  let users = await users_promise;
+  let users = await ex_raiders(msg.channel);
 
   return send_quiet(msg.channel, {
     embed: new Discord.RichEmbed()
-      .setTitle(`**List of EX raiders** for \`${handle}\` on ${month} ${day}`)
+      .setTitle(
+        `**List of EX raiders** for \`${ex.handle}\` on ${ex.month} ${ex.day}`
+      )
       .setDescription(users.map(user => user.tag).join('\n'))
       .setColor('RED')
   });
