@@ -77,7 +77,7 @@ const req_order = [
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
-  'ex', 'exit', 'ex-ls',
+  'ex', 'exit', 'ex-ls', 'exclaim',
 ];
 
 const req_to_perm = {
@@ -452,6 +452,18 @@ const reqs = {
     desc: 'List all EX raiders in the current EX raid room.',
     detail: [
       'Can only be used from EX raid rooms.',
+    ],
+    examples: {
+    },
+  },
+  'exclaim': {
+    perms: Permission.BLACKLIST,
+    dm: false,
+    usage: '[message]',
+    args: [Arg.VARIADIC],
+    desc: 'Ask Moltres to tag everyone in the room with your message.',
+    detail: [
+      'Can only be used from EX raid rooms.  Please don\'t spam.',
     ],
     examples: {
     },
@@ -2421,6 +2433,19 @@ async function handle_ex_ls(msg) {
   });
 }
 
+async function handle_exclaim(msg, content) {
+  let users = await ex_raiders(msg.channel);
+
+  content = `${msg.author} exclaims:
+
+\t${content}
+
+for all to hear!  ${users.map(u => u.toString()).join(' ')}`;
+
+  await send_quiet(msg.channel, content);
+  return try_delete(msg);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 /*
@@ -2459,6 +2484,7 @@ async function handle_request(msg, request, argv) {
     case 'ex':        return handle_ex(msg, ...argv);
     case 'exit':      return handle_exit(msg, ...argv);
     case 'ex-ls':     return handle_ex_ls(msg, ...argv);
+    case 'exclaim':   return handle_exclaim(msg, ...argv);
     default:
       return log_invalid(msg, `Invalid request \`${request}\`.`, true);
   }
