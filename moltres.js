@@ -77,7 +77,7 @@ const req_order = [
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
-  'ex', 'exit', 'ex-ls', 'exclaim',
+  'ex', 'exit', 'examine', 'exclaim',
 ];
 
 const req_to_perm = {
@@ -444,7 +444,7 @@ const reqs = {
     examples: {
     },
   },
-  'ex-ls': {
+  'examine': {
     perms: Permission.BLACKLIST,
     dm: false,
     usage: '',
@@ -2469,7 +2469,7 @@ async function handle_exit(msg) {
   return chain_reaccs(msg, 'door', 'walking', 'dash');
 }
 
-async function handle_ex_ls(msg) {
+async function handle_examine(msg) {
   let ex = ex_room_components(msg.channel.name);
 
   let users = await ex_raiders(msg.channel);
@@ -2534,7 +2534,7 @@ async function handle_request(msg, request, argv) {
 
     case 'ex':        return handle_ex(msg, ...argv);
     case 'exit':      return handle_exit(msg, ...argv);
-    case 'ex-ls':     return handle_ex_ls(msg, ...argv);
+    case 'examine':   return handle_examine(msg, ...argv);
     case 'exclaim':   return handle_exclaim(msg, ...argv);
     default:
       return log_invalid(msg, `Invalid request \`${request}\`.`, true);
