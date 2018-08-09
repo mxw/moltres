@@ -2323,11 +2323,11 @@ async function create_ex_room(room_name) {
 /*
  * Add or remove `user' to/from the EX raid room `room'.
  */
-function enter_ex_room(user, room) {
-  return room.overwritePermissions(user, {VIEW_CHANNEL: true});
+function enter_ex_room(uid, room) {
+  return room.overwritePermissions(uid, {VIEW_CHANNEL: true});
 }
-function exit_ex_room(user, room) {
-  return room.permissionOverwrites.get(user.id).delete();
+function exit_ex_room(uid, room) {
+  return room.permissionOverwrites.get(uid).delete();
 }
 
 /*
@@ -2361,6 +2361,24 @@ function ex_raiders(room) {
   uids = [...uids].filter(id => !guild().roles.get(id));
 
   return Promise.all([...uids].map(id => moltres.fetchUser(id)));
+}
+
+/*
+ * Cache for pending EX raid rooms.
+ */
+let ex_cache = {};
+
+function ex_cache_found(room_name) {
+  return room_name in ex_cache;
+}
+function ex_cache_insert(room_name, uid) {
+  ex_cache[room_name] = ex_cache[room_name] || new Set();
+  ex_cache[room_name].add(uid);
+}
+function ex_cache_take(room_name) {
+  let uids = ex_cache[room_name];
+  delete ex_cache[room_name];
+  return [...uids];
 }
 
 function handle_ex(msg, handle, date) {
@@ -2397,6 +2415,7 @@ function handle_ex(msg, handle, date) {
 
       if (room !== null) {
         if (date !== null) {
+          // Check for a mismatched date.
           let room_name = ex_room_name(gym.handle, date);
           if (room.name !== room_name) {
             let ex = ex_room_components(room.name);
@@ -2407,16 +2426,32 @@ function handle_ex(msg, handle, date) {
             );
           }
         }
-      } else {
-        if (date === null) {
-          return log_invalid(msg,
-            `Must provide a date for new EX raid at ${gym_name(gym)}.`
-          );
-        }
-        let room_name = ex_room_name(gym.handle, date);
-        room = await create_ex_room(room_name);
+        return enter_ex_room(msg.author.id, room);
       }
-      return enter_ex_room(msg.author, room);
+      // Otherwise, we need to create a room.
+
+      if (date === null) {
+        return log_invalid(msg,
+          `Must provide a date for new EX raid at ${gym_name(gym)}.`
+        );
+      }
+      let room_name = ex_room_name(gym.handle, date);
+
+      // Check to see if anyone is already creating this room.  If so, we
+      // should just add ourselves to the ex_cache entry and move on.
+      if (ex_cache_found(room_name)) {
+        return ex_cache_insert(room_name, msg.author.id);
+      }
+
+      // Create an entry in the ex_cache representing our initiation of room
+      // creation.  Anyone who attempts to create the same room before the API
+      // call completes adds themselves above to the cache entry instead of
+      // racing and creating a room of the same name.
+      ex_cache_insert(room_name, msg.author.id);
+      room = await create_ex_room(room_name);
+
+      let uids = ex_cache_take(room_name);
+      return Promise.all(uids.map(id => enter_ex_room(id, room)));
     })
   );
 }
@@ -2430,7 +2465,7 @@ async function handle_exit(msg) {
       `You have not entered the EX room #${msg.channel.name}`
     );
   }
-  await exit_ex_room(msg.author, msg.channel);
+  await exit_ex_room(msg.author.id, msg.channel);
   return chain_reaccs(msg, 'door', 'walking', 'dash');
 }
 
