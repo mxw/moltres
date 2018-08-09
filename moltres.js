@@ -2396,10 +2396,16 @@ function handle_ex(msg, handle, date) {
       let room = chan_list.find(c => !!c.name.match(room_re));
 
       if (room !== null) {
-        if (date !== null && room.name !== ex_room_name(gym.handle, date)) {
-          return log_invalid(msg,
-            `Incorrect EX raid date ${date_str(date)} for ${gym_name(gym)}.`
-          );
+        if (date !== null) {
+          let room_name = ex_room_name(gym.handle, date);
+          if (room.name !== room_name) {
+            let ex = ex_room_components(room.name);
+            return log_invalid(msg,
+              `Incorrect EX raid date ${date_str(date)} for ` +
+              `${gym_name(gym)}.  A room has already been created for ` +
+              `${ex.month} ${ex.day}.`
+            );
+          }
         }
       } else {
         if (date === null) {
