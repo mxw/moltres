@@ -2323,8 +2323,10 @@ async function create_ex_room(room_name) {
 /*
  * Add or remove `user' to/from the EX raid room `room'.
  */
-function enter_ex_room(uid, room) {
-  return room.overwritePermissions(uid, {VIEW_CHANNEL: true});
+async function enter_ex_room(uid, room) {
+  room = await room.overwritePermissions(uid, {VIEW_CHANNEL: true});
+  let user = await moltres.fetchUser(uid);
+  return send_quiet(room, `Welcome ${user} to the room!`);
 }
 function exit_ex_room(uid, room) {
   return room.permissionOverwrites.get(uid).delete();
