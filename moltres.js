@@ -737,14 +737,9 @@ function total_mentions(msg) {
 function log_impl(msg, str, reacc = null) {
   let promises = [];
 
-  if (str) {
-    if (str.startsWith('**Usage**')) {
-      // Truncate usage strings.
-      str = 'Usage: [...]';
-    }
-    let log = moltres.channels.get(config.log_id);
-    promises.push(send_quiet(log, `_Error:_  ${str}`));
-  }
+  let log = moltres.channels.get(config.log_id);
+  promises.push(send_quiet(log, str));
+
   if (reacc) promises.push(chain_reaccs(msg, reacc));
 
   return Promise.all(promises);
@@ -757,11 +752,15 @@ function react_success(msg, reacc = null) {
   return chain_reaccs(msg, reacc || 'approved');
 };
 function log_error(msg, str, reacc = null) {
-  return log_impl(msg, str, reacc || 'no_good');
+  return log_impl(msg, '_Error:_  ' + str, reacc || 'no_good');
 };
 async function log_invalid(msg, str, keep = false) {
+  if (str.startsWith('**Usage**')) {
+    // Truncate usage strings.
+    str = 'Usage: [...]';
+  }
   await Promise.all([
-    log_impl(msg, str, null),
+    log_impl(msg, '_Error:_  ' + str, null),
     dm_quiet(msg.author, str),
   ]);
   if (!keep) await try_delete(msg);
