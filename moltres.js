@@ -2293,9 +2293,9 @@ function ex_room_components(room_name) {
 }
 
 /*
- * Create a channel `room_name' for an EX raid.
+ * Create a channel `room_name' for an EX raid at `gym' on `date'.
  */
-async function create_ex_room(room_name) {
+async function create_ex_room(room_name, gym, date) {
   let permissions = config.ex.permissions
     .concat([
       { // Make sure Moltres can modify the channel.
@@ -2314,6 +2314,9 @@ async function create_ex_room(room_name) {
     ]);
 
   let room = await guild().createChannel(room_name, 'text', permissions);
+  room = await room.setTopic(
+    `EX raid coordination for ${gym.name} on ${date_str(date)}.`
+  );
   if ('category' in config.ex) {
     room = await room.setParent(config.ex.category);
   }
@@ -2450,7 +2453,7 @@ function handle_ex(msg, handle, date) {
       // call completes adds themselves above to the cache entry instead of
       // racing and creating a room of the same name.
       ex_cache_insert(room_name, msg.author.id);
-      room = await create_ex_room(room_name);
+      room = await create_ex_room(room_name, gym, date);
 
       let uids = ex_cache_take(room_name);
       return Promise.all(uids.map(id => enter_ex_room(id, room)));
