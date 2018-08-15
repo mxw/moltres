@@ -66,6 +66,11 @@ const Permission = {
   BLACKLIST: 3,
 };
 
+const EXReq = {
+  MAIN: 0,
+  ROOM: 1,
+};
+
 const Arg = utils.Arg;
 const InvalidArg = utils.InvalidArg;
 
@@ -77,7 +82,7 @@ const req_order = [
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
-  'ex', 'exit', 'examine', 'exclaim',
+  'ex', 'exit', 'examine', 'exclaim', 'explore',
 ];
 
 const req_to_perm = {
@@ -417,6 +422,7 @@ const reqs = {
   'ex': {
     perms: Permission.BLACKLIST,
     dm: false,
+    ex: EXReq.MAIN,
     usage: '<gym-handle-or-name> [MM/DD]',
     args: [Arg.VARIADIC, -Arg.MONTHDAY],
     desc: 'Enter an EX raid room.',
@@ -432,9 +438,23 @@ const reqs = {
       'jh': 'Enter the EX raid room for **John Harvard Statue**.',
     },
   },
+  'explore': {
+    perms: Permission.BLACKLIST,
+    dm: false,
+    ex: EXReq.MAIN,
+    usage: '',
+    args: [],
+    desc: 'List all EX raiders in the current EX raid room.',
+    detail: [
+      'Can only be used from EX raid rooms.',
+    ],
+    examples: {
+    },
+  },
   'exit': {
     perms: Permission.BLACKLIST,
     dm: false,
+    ex: EXReq.ROOM,
     usage: '',
     args: [],
     desc: 'Exit the EX raid room you\'re in.',
@@ -447,6 +467,7 @@ const reqs = {
   'examine': {
     perms: Permission.BLACKLIST,
     dm: false,
+    ex: EXReq.ROOM,
     usage: '',
     args: [],
     desc: 'List all EX raiders in the current EX raid room.',
@@ -459,6 +480,7 @@ const reqs = {
   'exclaim': {
     perms: Permission.BLACKLIST,
     dm: false,
+    ex: EXReq.ROOM,
     usage: '[message]',
     args: [Arg.VARIADIC],
     desc: 'Ask Moltres to tag everyone in the room with your message.',
@@ -2460,6 +2482,32 @@ function handle_ex(msg, handle, date) {
   );
 }
 
+function handle_explore(msg) {
+  let room_info = new Map(guild().channels
+    .filter(is_ex_room)
+    .map(room => ex_room_components(room.name))
+    .map(info => [info.handle, info])
+  );
+
+  conn.query(
+    'SELECT * FROM gyms WHERE ' +
+      Array(room_info.size).fill('handle = ?').join(' OR ') +
+    ' ORDER BY handle',
+    [...room_info.keys()],
+
+    errwrap(msg, function (msg, results) {
+      let output = 'Active EX raid rooms:\n\n' + results
+        .map(gym => {
+          let info = room_info.get(gym.handle);
+          const end = ' (EX!)'.length;
+          return `${gym_name(gym).slice(0, -end)} (${info.month} ${info.day})`;
+        })
+        .join('\n');
+      return send_quiet(msg.channel, output);
+    })
+  );
+}
+
 async function handle_exit(msg) {
   // If a user has a permission overwrite, they're in the room.
   let in_room = !!msg.channel.permissionOverwrites.get(msg.author.id);
@@ -2537,6 +2585,7 @@ async function handle_request(msg, request, argv) {
     case 'unjoin':    return handle_unjoin(msg, ...argv);
 
     case 'ex':        return handle_ex(msg, ...argv);
+    case 'explore':   return handle_explore(msg, ...argv);
     case 'exit':      return handle_exit(msg, ...argv);
     case 'examine':   return handle_examine(msg, ...argv);
     case 'exclaim':   return handle_exclaim(msg, ...argv);
@@ -2561,8 +2610,9 @@ async function handle_request_with_check(msg, request, argv) {
   }
 
   if (request.startsWith('ex')) {
-    if ((request === 'ex' && !config.ex.channels.has(msg.channel.id)) ||
-        (request !== 'ex' && !is_ex_room(msg.channel))) {
+    if ((req_meta.ex === EXReq.MAIN &&
+           !config.ex.channels.has(msg.channel.id)) ||
+        (req_meta.ex === EXReq.ROOM && !is_ex_room(msg.channel))) {
       return log_invalid(msg,
         `\`\$${request}\` can't be handled from #${msg.channel.name}.`
       );
