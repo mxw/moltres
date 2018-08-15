@@ -2335,16 +2335,16 @@ function exit_ex_room(uid, room) {
 }
 
 /*
- * Return whether `msg' was sent from an EX raid room.
+ * Return whether `channel' is an EX raid room.
  */
-function from_ex_room(msg) {
-  if (msg.channel.type === 'dm') return false;
+function is_ex_room(channel) {
+  if (channel.type === 'dm') return false;
 
   if ('category' in config.ex) {
-    return msg.channel.parentID === config.ex.category;
+    return channel.parentID === config.ex.category;
   }
   // Guess based on the format of EX room names.
-  return !!msg.channel.name.match(ex_room_regex);
+  return !!channel.name.match(ex_room_regex);
 }
 
 /*
@@ -2562,7 +2562,7 @@ async function handle_request_with_check(msg, request, argv) {
 
   if (request.startsWith('ex')) {
     if ((request === 'ex' && !config.ex.channels.has(msg.channel.id)) ||
-        (request !== 'ex' && !from_ex_room(msg))) {
+        (request !== 'ex' && !is_ex_room(msg.channel))) {
       return log_invalid(msg,
         `\`\$${request}\` can't be handled from #${msg.channel.name}.`
       );
@@ -2640,7 +2640,7 @@ _Channel:_  #${msg.channel.type === 'dm' ? '[dm]' : msg.channel.name}`;
 moltres.on('message', async msg => {
   if (msg.channel.id in config.channels ||
       msg.channel.type === 'dm' ||
-      from_ex_room(msg)) {
+      is_ex_room(msg.channel)) {
     try {
       await process_request(msg);
     } catch (e) {
