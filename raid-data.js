@@ -32,6 +32,7 @@ module.exports = {
     misdreavus: 2,
     muk: 2,
     primeape: 2,
+    roselia: 2,
     sableye: 2,
     sneasel: 2,
     sudowoodo: 2,
@@ -61,6 +62,7 @@ module.exports = {
     scyther: 3,
     sharpedo: 3,
     starmie: 3,
+    tangela: 3,
     vaporeon: 3,
 
     'alolan-marowak': 4,
@@ -75,7 +77,7 @@ module.exports = {
     tyranitar: 4,
     walrein: 4,
 
-    registeel: 5,
+    regirock: 5,
   },
   boss_aliases: {
     ttar: 'tyranitar',

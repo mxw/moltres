@@ -682,6 +682,7 @@ const emoji_by_name = {
   gem: '💎',
   no_entry_sign: '🚫',
   no_good: '🙅',
+  potato: '🥔',
   thinking: '🤔',
   walking: '🚶',
   whale: '🐳',
