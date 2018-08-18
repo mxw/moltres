@@ -2491,9 +2491,9 @@ function handle_explore(msg) {
   );
 
   conn.query(
-    'SELECT * FROM gyms WHERE ' +
-      Array(room_info.size).fill('handle = ?').join(' OR ') +
-    ' ORDER BY handle',
+    'SELECT * FROM gyms WHERE handle IN (' +
+        Array(room_info.size).fill('?').join(',') +
+    ') ORDER BY handle',
     [...room_info.keys()],
 
     errwrap(msg, function (msg, results) {
