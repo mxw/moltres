@@ -778,13 +778,15 @@ function log_error(msg, str, reacc = null) {
   return log_impl(msg, '_Error:_  ' + str, reacc || 'no_good');
 };
 async function log_invalid(msg, str, keep = false) {
+  let orig_str = str;
+
   if (str.startsWith('**Usage**')) {
     // Truncate usage strings.
     str = 'Usage: [...]';
   }
   await Promise.all([
     log_impl(msg, '_Error:_  ' + str, null),
-    dm_quiet(msg.author, str),
+    dm_quiet(msg.author, orig_str),
   ]);
   if (!keep) await try_delete(msg);
 };
