@@ -82,7 +82,7 @@ const req_order = [
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
-  'ex', 'exit', 'examine', 'exclaim', 'explore',
+  'ex', 'exit', 'examine', 'exclaim', 'explore', 'expunge',
 ];
 
 const req_to_perm = {
@@ -481,11 +481,23 @@ const reqs = {
     perms: Permission.BLACKLIST,
     dm: false,
     ex: EXReq.ROOM,
-    usage: '[message]',
+    usage: '<message>',
     args: [Arg.VARIADIC],
     desc: 'Ask Moltres to tag everyone in the room with your message.',
     detail: [
       'Can only be used from EX raid rooms.  Please don\'t spam.',
+    ],
+    examples: {
+    },
+  },
+  'expunge': {
+    perms: Permission.WHITELIST,
+    dm: false,
+    ex: EXReq.MAIN,
+    usage: '<MM/DD>',
+    args: [Arg.MONTHDAY],
+    desc: 'Clear all EX raid rooms for the given date.',
+    detail: [
     ],
     examples: {
     },
@@ -2552,6 +2564,23 @@ for all to hear!  ${users.map(u => u.toString()).join(' ')}`;
   return try_delete(msg);
 }
 
+function handle_expunge(msg, date) {
+  if (date instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid MM/DD date \`${date.arg}\`.`);
+  }
+  let expected = date_str(date);
+
+  let rooms = guild().channels
+    .filterArray(is_ex_room)
+    .filter(room => {
+      let info = ex_room_components(room.name);
+      let found = `${info.month} ${info.day}`;
+      return expected === found;
+    });
+
+  return Promise.all(rooms.map(room => room.delete()));
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 /*
@@ -2592,6 +2621,7 @@ async function handle_request(msg, request, argv) {
     case 'exit':      return handle_exit(msg, ...argv);
     case 'examine':   return handle_examine(msg, ...argv);
     case 'exclaim':   return handle_exclaim(msg, ...argv);
+    case 'expunge':   return handle_expunge(msg, ...argv);
     default:
       return log_invalid(msg, `Invalid request \`${request}\`.`, true);
   }
