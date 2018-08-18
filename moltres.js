@@ -894,6 +894,8 @@ function mutation_handler(msg, failure = null, success = null) {
  * Get a SQL WHERE clause fragment for selecting a unique gym matching `handle'.
  */
 function where_one_gym(handle) {
+  handle = handle.replace(/’/g, "'");
+
   return mysql.format(
     ' (gyms.handle = ? OR (' +
     '   (gyms.handle LIKE ? OR gyms.name LIKE ?) AND ' +
