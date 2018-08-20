@@ -705,7 +705,8 @@ const emoji_by_name = {
  */
 function get_emoji(name) {
   name = config.emoji[name] || name;
-  return emoji_by_name[name] || moltres.emojis.find('name', name);
+  return emoji_by_name[name] ||
+         moltres.emojis.find(e => e.name === name);
 }
 
 /*
@@ -737,10 +738,10 @@ async function chain_reaccs(msg, ...reaccs) {
  */
 function get_role(name) {
   let impl = function(name) {
-    let role = guild().roles.find('name', name);
+    let role = guild().roles.find(r => r.name === name);
     if (role) return role;
 
-    role = guild().roles.find('name', capitalize(name));
+    role = guild().roles.find(r => r.name === capitalize(name));
     if (role) return role;
 
     let matches = guild().roles.filterArray(
