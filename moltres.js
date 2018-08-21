@@ -59,6 +59,9 @@ process.on('uncaughtException', (err) => {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+/*
+ * Who can use a request?
+ */
 const Permission = {
   ADMIN: 0,
   NONE: 1,
@@ -66,9 +69,19 @@ const Permission = {
   BLACKLIST: 3,
 };
 
-const EXReq = {
-  MAIN: 0,
-  ROOM: 1,
+/*
+ * Where can a request be used from?
+ */
+const Access = {
+  DM: 1 << 0,
+  REGION: 1 << 1,
+  EX_MAIN: 1 << 2,
+  EX_ROOM: 1 << 3,
+
+  // Unions.
+  REGION_DM: 1 << 0 | 1 << 1,
+  EX_ALL: 1 << 2 | 1 << 3,
+  ALL: (1 << 4) - 1,
 };
 
 const Arg = utils.Arg;
@@ -96,7 +109,7 @@ const req_to_perm = {
 const reqs = {
   'help': {
     perms: Permission.NONE,
-    dm: true,
+    access: Access.ALL,
     usage: '[request]',
     args: [-Arg.STR],
     desc: 'Learn about our team\'s legendary avatar.',
@@ -112,7 +125,7 @@ const reqs = {
   },
   'set-perm': {
     perms: Permission.ADMIN,
-    dm: false,
+    access: Access.REGION | Access.EX_ALL,
     usage: '<user> <request>',
     args: [Arg.STR, Arg.STR],
     desc: 'Enable others to use more requests.',
@@ -124,7 +137,7 @@ const reqs = {
   },
   'reload-config': {
     perms: Permission.ADMIN,
-    dm: true,
+    access: Access.ALL,
     usage: '',
     args: [],
     desc: 'Reload the Moltres config file.',
@@ -137,7 +150,7 @@ const reqs = {
   },
   'test': {
     perms: Permission.ADMIN,
-    dm: true,
+    access: Access.ALL,
     usage: '',
     args: null,
     desc: 'Flavor of the week testing command.',
@@ -150,7 +163,7 @@ const reqs = {
 
   'gym': {
     perms: Permission.NONE,
-    dm: true,
+    access: Access.ALL,
     usage: '<gym-handle-or-name>',
     args: [Arg.VARIADIC],
     desc: 'Get information about a gym.',
@@ -168,7 +181,7 @@ const reqs = {
   },
   'ls-gyms': {
     perms: Permission.NONE,
-    dm: true,
+    access: Access.ALL,
     usage: '<region-name>',
     args: [Arg.VARIADIC],
     desc: 'List all gyms in a region.',
@@ -186,7 +199,7 @@ const reqs = {
   },
   'search-gym': {
     perms: Permission.NONE,
-    dm: true,
+    access: Access.ALL,
     usage: '<partial-handle-or-name>',
     args: [Arg.VARIADIC],
     desc: 'Search for gyms matching a name fragment.',
@@ -201,7 +214,7 @@ const reqs = {
   },
   'add-gym': {
     perms: Permission.WHITELIST,
-    dm: false,
+    access: Access.REGION,
     usage: '<gym-handle> <region> <lat> <lng> <name>',
     args: [Arg.STR, Arg.STR, Arg.STR, Arg.STR, Arg.VARIADIC],
     desc: 'Add a new gym to the database.',
@@ -220,7 +233,7 @@ const reqs = {
   },
   'ls-regions': {
     perms: Permission.NONE,
-    dm: true,
+    access: Access.ALL,
     usage: '',
     args: [],
     desc: 'List all regions with registered gyms.',
@@ -233,7 +246,7 @@ const reqs = {
 
   'raid': {
     perms: Permission.NONE,
-    dm: true,
+    access: Access.REGION_DM,
     usage: '<gym-handle-or-name>',
     args: [Arg.VARIADIC],
     desc: 'Get information about the current raid at a gym.',
@@ -245,7 +258,7 @@ const reqs = {
   },
   'ls-raids': {
     perms: Permission.NONE,
-    dm: true,
+    access: Access.REGION_DM,
     usage: '<region-name>',
     args: [-Arg.VARIADIC],
     desc: 'List all active raids in a region.',
@@ -261,7 +274,7 @@ const reqs = {
   },
   'egg': {
     perms: Permission.BLACKLIST,
-    dm: false,
+    access: Access.REGION_DM,
     usage: '<gym-handle-or-name> <tier> <time-til-hatch MM:SS>',
     args: [Arg.VARIADIC, Arg.TIER, Arg.TIMER],
     desc: 'Report a raid egg.',
@@ -279,7 +292,7 @@ const reqs = {
   },
   'boss': {
     perms: Permission.BLACKLIST,
-    dm: false,
+    access: Access.REGION_DM,
     usage: '<gym-handle-or-name> <boss> <time-til-despawn MM:SS>',
     args: [Arg.VARIADIC, Arg.BOSS, Arg.TIMER],
     desc: 'Report a hatched raid boss.',
@@ -301,7 +314,7 @@ const reqs = {
   },
   'update': {
     perms: Permission.BLACKLIST,
-    dm: false,
+    access: Access.REGION_DM,
     usage: '<gym-handle-or-name> <tier-or-boss-or-despawn-time-or-team>',
     args: [Arg.VARIADIC, Arg.STR],
     desc: 'Modify an active raid listing.',
@@ -320,7 +333,7 @@ const reqs = {
   },
   'scrub': {
     perms: Permission.BLACKLIST,
-    dm: false,
+    access: Access.REGION,
     usage: '<gym-handle-or-name>',
     args: [Arg.VARIADIC],
     desc: 'Delete a reported raid and all associated information.',
@@ -333,7 +346,7 @@ const reqs = {
 
   'call': {
     perms: Permission.BLACKLIST,
-    dm: false,
+    access: Access.REGION,
     usage: '<gym-handle-or-name> <HH:MM> [num-extras]',
     args: [Arg.VARIADIC, Arg.HOURMIN, -Arg.INT],
     desc: 'Call a time for a raid.',
@@ -352,7 +365,7 @@ const reqs = {
   },
   'cancel': {
     perms: Permission.BLACKLIST,
-    dm: false,
+    access: Access.REGION,
     usage: '<gym-handle-or-name> [HH:MM]',
     args: [Arg.VARIADIC, -Arg.HOURMIN],
     desc: 'Cancel a called raid time.',
@@ -368,7 +381,7 @@ const reqs = {
   },
   'change-time': {
     perms: Permission.BLACKLIST,
-    dm: false,
+    access: Access.REGION,
     usage: '<gym-handle-or-name> <current-HH:MM> to <desired-HH:MM>',
     args: [Arg.VARIADIC, Arg.HOURMIN, Arg.STR, Arg.HOURMIN],
     desc: 'Change a called time for a raid.',
@@ -385,7 +398,7 @@ const reqs = {
   },
   'join': {
     perms: Permission.NONE,
-    dm: false,
+    access: Access.REGION,
     usage: '<gym-handle-or-name> [HH:MM] [num-extras]',
     args: [Arg.VARIADIC, -Arg.HOURMIN, -Arg.INT],
     desc: 'Join a called raid time.',
@@ -404,7 +417,7 @@ const reqs = {
   },
   'unjoin': {
     perms: Permission.NONE,
-    dm: false,
+    access: Access.REGION,
     usage: '<gym-handle-or-name> [HH:MM]',
     args: [Arg.VARIADIC, -Arg.HOURMIN],
     desc: 'Back out of a scheduled raid.',
@@ -421,8 +434,7 @@ const reqs = {
 
   'ex': {
     perms: Permission.BLACKLIST,
-    dm: false,
-    ex: EXReq.MAIN,
+    access: Access.EX_MAIN,
     usage: '<gym-handle-or-name> [MM/DD]',
     args: [Arg.VARIADIC, -Arg.MONTHDAY],
     desc: 'Enter an EX raid room.',
@@ -440,8 +452,7 @@ const reqs = {
   },
   'explore': {
     perms: Permission.BLACKLIST,
-    dm: false,
-    ex: EXReq.MAIN,
+    access: Access.EX_MAIN,
     usage: '',
     args: [],
     desc: 'List all EX raiders in the current EX raid room.',
@@ -453,8 +464,7 @@ const reqs = {
   },
   'exit': {
     perms: Permission.BLACKLIST,
-    dm: false,
-    ex: EXReq.ROOM,
+    access: Access.EX_ROOM,
     usage: '',
     args: [],
     desc: 'Exit the EX raid room you\'re in.',
@@ -466,8 +476,7 @@ const reqs = {
   },
   'examine': {
     perms: Permission.BLACKLIST,
-    dm: false,
-    ex: EXReq.ROOM,
+    access: Access.EX_ROOM,
     usage: '',
     args: [],
     desc: 'List all EX raiders in the current EX raid room.',
@@ -479,8 +488,7 @@ const reqs = {
   },
   'exclaim': {
     perms: Permission.BLACKLIST,
-    dm: false,
-    ex: EXReq.ROOM,
+    access: Access.EX_ROOM,
     usage: '<message>',
     args: [Arg.VARIADIC],
     desc: 'Ask Moltres to tag everyone in the room with your message.',
@@ -492,8 +500,7 @@ const reqs = {
   },
   'expunge': {
     perms: Permission.WHITELIST,
-    dm: false,
-    ex: EXReq.MAIN,
+    access: Access.EX_MAIN,
     usage: '<MM/DD>',
     args: [Arg.MONTHDAY],
     desc: 'Clear all EX raid rooms for the given date.',
@@ -2587,6 +2594,27 @@ function handle_expunge(msg, date) {
 ///////////////////////////////////////////////////////////////////////////////
 
 /*
+ * Check whether `msg' is from a source with access to `request'.
+ */
+function has_access(msg, request) {
+  let access = reqs[request].access;
+
+  if (msg.channel.type === 'dm') {
+    return access & Access.DM;
+  }
+  if (config.ex.channels.has(msg.channel.id)) {
+    return access & Access.EX_MAIN;
+  }
+  if (is_ex_room(msg.channel)) {
+    return access & Access.EX_ROOM;
+  }
+  if (msg.channel.id in config.channels) {
+    return access & Access.REGION;
+  }
+  return false;
+}
+
+/*
  * Do the work of `request'.
  */
 async function handle_request(msg, request, argv) {
@@ -2639,23 +2667,15 @@ async function handle_request_with_check(msg, request, argv) {
 
   let req_meta = reqs[request];
 
-  let is_admin = config.admin_ids.has(user_id);
-
-  if (!is_admin && !req_meta.dm && msg.channel.type === 'dm') {
-    return log_invalid(msg, `\`\$${request}\` can't be handled via DM`, true);
+  if (!has_access(msg, request)) {
+    let from_dm = msg.channel.type === 'dm';
+    let output = `\`\$${request}\` can't be handled ` +
+                 (from_dm ? 'via DM' : `from ${msg.channel}.`);
+    return log_invalid(msg, output, from_dm);
   }
 
-  if (request.startsWith('ex')) {
-    if ((req_meta.ex === EXReq.MAIN &&
-           !config.ex.channels.has(msg.channel.id)) ||
-        (req_meta.ex === EXReq.ROOM && !is_ex_room(msg.channel))) {
-      return log_invalid(msg,
-        `\`\$${request}\` can't be handled from #${msg.channel.name}.`
-      );
-    }
-  }
-
-  if (is_admin || req_meta.perms === Permission.NONE) {
+  if (config.admin_ids.has(user_id) ||
+      req_meta.perms === Permission.NONE) {
     return handle_request(msg, request, argv);
   }
 
