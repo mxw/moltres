@@ -261,7 +261,7 @@ const reqs = {
     perms: Permission.NONE,
     access: Access.REGION_DM,
     usage: '<region-name>',
-    args: [-Arg.VARIADIC],
+    args: [-Arg.TIER, -Arg.VARIADIC],
     desc: 'List all active raids in a region.',
     detail: [
       'The region name should be any valid region role (without the `@`).',
@@ -1745,7 +1745,7 @@ hatch: ${time_str(hatch)}`;
   }));
 }
 
-function handle_ls_raids(msg, region) {
+function handle_ls_raids(msg, tier, region) {
   let now = get_now();
 
   let region_clause = {meta: config.area, sql: 'TRUE'};
@@ -1778,12 +1778,15 @@ function handle_ls_raids(msg, region) {
       if (!is_meta && row.gyms.region !== out_region) {
         return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
       }
+      if (tier && row.raids.tier !== tier) continue;
+
       let handle = row.gyms.handle;
       rows_by_raid[handle] = rows_by_raid[handle] || [];
       rows_by_raid[handle].push(row);
     }
 
-    let output = `Active raids in **${out_region}**:\n`;
+    let raids_expr = tier ? `**T${tier} raids**` : 'raids';
+    let output = `Active ${raids_expr} in **${out_region}**:\n`;
 
     for (let handle in rows_by_raid) {
       let [{gyms, raids, calls}] = rows_by_raid[handle];
