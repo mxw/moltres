@@ -16,6 +16,14 @@ module.exports = {
     '203901392075299070',
   ]),
 
+  // Function which returns whether raid call times should be revealed in
+  // response to `msg', with `guild' corresponding to guild_id.  Can be null
+  // (or unset) to skip the check.
+  call_check: function(msg, guild) {
+    // e.g., Don't reveal call times in DMs.
+    return msg.channel.type !== 'dm';
+  },
+
   // Map from Discord IDs of text channels Moltres watches to arrays of region
   // or metaregion names whose raid activities should be posted to the channel.
   channels: {

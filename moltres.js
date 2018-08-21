@@ -1578,6 +1578,13 @@ function handle_ls_regions(msg) {
 // Raid handlers.
 
 /*
+ * Whether call times should be displayed in response to `msg'.
+ */
+function should_display_calls(msg) {
+  return !config.call_check || config.call_check(msg, guild());
+}
+
+/*
  * Canonical string for displaying a raid boss from a raids table row.
  */
 function fmt_tier_boss(raid) {
@@ -1672,7 +1679,7 @@ hatch: ${time_str(hatch)}`;
       output += `\nlast known team: ${get_emoji(raids.team)}`;
     }
 
-    if (calls.time !== null && is_member(guild(), msg.author)) {
+    if (calls.time !== null && should_display_calls(msg)) {
       output += '\n\ncall time(s):';
 
       let times = [];
@@ -1787,7 +1794,7 @@ function handle_ls_raids(msg, region) {
         output += ` — _${gyms.region}_`;
       }
 
-      if (calls.time !== null && is_member(guild(), msg.author)) {
+      if (calls.time !== null && should_display_calls(msg)) {
         let times = rows_by_raid[handle]
           .map(row => time_str(row.calls.time))
           .join(', ');
