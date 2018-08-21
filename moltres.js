@@ -1586,7 +1586,7 @@ function handle_raid(msg, handle) {
 
   select_rsvps('', [], handle, errwrap(msg, async function (msg, results) {
     if (results.length < 1) {
-      await chain_reaccs(msg, 'no_entry_sign');
+      await chain_reaccs(msg, 'no_entry_sign', 'raidegg');
       return send_quiet(msg.channel,
         `No unique raid found for \`[${handle}]\`.`
       );
