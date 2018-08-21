@@ -1635,6 +1635,10 @@ function send_raid_report_notif(msg, handle, verbed = 'reported') {
                    (from_dm(msg) ? 'via DM' : `by ${msg.author}`) + ').';
 
       await send_for_region(raid.region, output);
+
+      if (from_dm(msg)) {
+        return dm_quiet(msg.author, output);
+      }
       return try_delete(msg, 10000);
     })
   );
@@ -1846,7 +1850,7 @@ function handle_report(msg, handle, tier, boss, timer) {
         'already have an active raid.'
       );
     }, function (msg, result) {
-      send_raid_report_notif(msg, handle);
+      return send_raid_report_notif(msg, handle);
     })
   );
 }
