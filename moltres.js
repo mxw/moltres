@@ -260,7 +260,7 @@ const reqs = {
   'ls-raids': {
     perms: Permission.NONE,
     access: Access.REGION_DM,
-    usage: '<region-name>',
+    usage: '[tier] [region-name]',
     args: [-Arg.TIER, -Arg.VARIADIC],
     desc: 'List all active raids in a region.',
     detail: [
@@ -271,6 +271,10 @@ const reqs = {
       'is provided, this lists all known raids.',
     ],
     examples: {
+      '': 'List all known raids.',
+      '4': 'List all T4 raids.',
+      '5 boston common': 'List all T5 raids in Boston Common.',
+      'cambridge': 'List all known Cambridge area raids.',
     },
   },
   'egg': {
