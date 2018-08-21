@@ -602,6 +602,13 @@ function is_member(guild, user) {
 }
 
 /*
+ * Whether `msg' is from a DM.
+ */
+function from_dm(msg) {
+  return msg.channel.type === 'dm';
+}
+
+/*
  * Wrapper around send() that chains messages and swallows exceptions.
  */
 async function send_quiet_impl(channel, ...contents) {
@@ -665,7 +672,7 @@ function send_for_region(region, content) {
  * Try to delete a message if it's not on a DM channel.
  */
 async function try_delete(msg, wait = 0) {
-  if (msg.channel.type === 'dm') return;
+  if (from_dm(msg)) return;
   try {
     await msg.delete(wait);
   } catch (e) {
@@ -2599,7 +2606,7 @@ function handle_expunge(msg, date) {
 function has_access(msg, request) {
   let access = reqs[request].access;
 
-  if (msg.channel.type === 'dm') {
+  if (from_dm(msg)) {
     return access & Access.DM;
   }
   if (config.ex.channels.has(msg.channel.id)) {
@@ -2668,10 +2675,10 @@ async function handle_request_with_check(msg, request, argv) {
   let req_meta = reqs[request];
 
   if (!has_access(msg, request)) {
-    let from_dm = msg.channel.type === 'dm';
+    let dm = from_dm(msg);
     let output = `\`\$${request}\` can't be handled ` +
-                 (from_dm ? 'via DM' : `from ${msg.channel}.`);
-    return log_invalid(msg, output, from_dm);
+                 (dm ? 'via DM' : `from ${msg.channel}.`);
+    return log_invalid(msg, output, dm);
   }
 
   if (config.admin_ids.has(user_id) ||
@@ -2721,7 +2728,7 @@ async function process_request(msg) {
   let output = `\`\$${req}\` ${args}
 _Time:_  ${get_now().toLocaleString('en-US', {timeZone: 'America/New_York'})}
 _User:_  ${msg.author.tag}
-_Channel:_  #${msg.channel.type === 'dm' ? '[dm]' : msg.channel.name}`;
+_Channel:_  #${from_dm(msg) ? '[dm]' : msg.channel.name}`;
 
   await send_quiet(log, output);
 
@@ -2745,8 +2752,7 @@ _Channel:_  #${msg.channel.type === 'dm' ? '[dm]' : msg.channel.name}`;
  */
 moltres.on('message', async msg => {
   if (msg.channel.id in config.channels ||
-      msg.channel.type === 'dm' ||
-      is_ex_room(msg.channel)) {
+      from_dm(msg) || is_ex_room(msg.channel)) {
     try {
       await process_request(msg);
     } catch (e) {
