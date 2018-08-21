@@ -77,11 +77,12 @@ const Access = {
   REGION: 1 << 1,
   EX_MAIN: 1 << 2,
   EX_ROOM: 1 << 3,
+  ADMIN_DM: 1 << 4,
 
   // Unions.
   REGION_DM: 1 << 0 | 1 << 1,
   EX_ALL: 1 << 2 | 1 << 3,
-  ALL: (1 << 4) - 1,
+  ALL: (1 << 5) - 1,
 };
 
 const Arg = utils.Arg;
@@ -333,7 +334,7 @@ const reqs = {
   },
   'scrub': {
     perms: Permission.BLACKLIST,
-    access: Access.REGION,
+    access: Access.REGION | Access.ADMIN_DM,
     usage: '<gym-handle-or-name>',
     args: [Arg.VARIADIC],
     desc: 'Delete a reported raid and all associated information.',
@@ -2636,7 +2637,8 @@ function has_access(msg, request) {
   let access = reqs[request].access;
 
   if (from_dm(msg)) {
-    return access & Access.DM;
+    return access & Access.DM ||
+          (access & Access.ADMIN_DM && config.admin_ids.has(msg.author.id));
   }
   if (config.ex.channels.has(msg.channel.id)) {
     return access & Access.EX_MAIN;
@@ -2699,8 +2701,6 @@ async function handle_request(msg, request, argv) {
  * `request', and make it if so.
  */
 async function handle_request_with_check(msg, request, argv) {
-  let user_id = msg.author.id;
-
   let req_meta = reqs[request];
 
   if (!has_access(msg, request)) {
@@ -2710,14 +2710,14 @@ async function handle_request_with_check(msg, request, argv) {
     return log_invalid(msg, output, dm);
   }
 
-  if (config.admin_ids.has(user_id) ||
+  if (config.admin_ids.has(msg.author.id) ||
       req_meta.perms === Permission.NONE) {
     return handle_request(msg, request, argv);
   }
 
   conn.query(
     'SELECT * FROM permissions WHERE (cmd = ? AND user_id = ?)',
-    [req_to_perm[request] || request, user_id],
+    [req_to_perm[request] || request, msg.author.id],
 
     errwrap(msg, async function (msg, results) {
       let permitted =
