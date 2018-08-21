@@ -1595,6 +1595,44 @@ function fmt_tier_boss(raid) {
   return `T${tier} ${boss}`;
 }
 
+/*
+ * Get a canonical notification string for a report for `raid'.
+ */
+function raid_report_notif(raid) {
+  let now = get_now();
+  let hatch = hatch_from_despawn(raid.despawn);
+
+  if (now < hatch) {
+    return `${get_emoji('raidegg')} **T${raid.tier} egg** ` +
+           `hatches at ${gym_name(raid)} at ${time_str(hatch)} `;
+  }
+  return `${get_emoji('boss')} **${fmt_tier_boss(raid)} raid** ` +
+         `despawns at ${gym_name(raid)} at ${time_str(raid.despawn)} `;
+}
+
+/*
+ * Fetch and send a raid report notification for `msg' at `handle'.
+ */
+function send_raid_report_notif(msg, handle, verbed = 'reported') {
+  conn.query(
+    'SELECT * FROM gyms ' +
+    '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
+    '   WHERE ' + where_one_gym(handle),
+
+    errwrap(msg, async function (msg, results) {
+      let found_one = await check_one_gym(msg, handle, results);
+      if (!found_one) return;
+      let [raid] = results;
+
+      let output = raid_report_notif(raid) +
+                   `(${verbed} by ${msg.author}).`;
+
+      await send_for_region(raid.region, output);
+      return try_delete(msg, 10000);
+    })
+  );
+}
+
 function handle_raid(msg, handle) {
   let now = get_now();
 
@@ -1801,32 +1839,7 @@ function handle_report(msg, handle, tier, boss, timer) {
         'already have an active raid.'
       );
     }, function (msg, result) {
-      // Grab the raid information just for reply purposes.
-      conn.query(
-        'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
-
-        errwrap(msg, async function (msg, results) {
-          let found_one = await check_one_gym(msg, handle, results);
-          if (!found_one) return;
-          let [gym] = results;
-
-          let output = function() {
-            if (boss === null) {
-              let hatch = hatch_from_despawn(despawn);
-              return `${get_emoji('raidegg')} **T${tier} egg** ` +
-                     `hatches at ${gym_name(gym)} at ${time_str(hatch)} `;
-            } else {
-              let raid = {tier: tier, boss: boss};
-              return `${get_emoji('boss')} **${fmt_tier_boss(raid)} raid** ` +
-                     `despawns at ${gym_name(gym)} at ${time_str(despawn)} `;
-            }
-          }();
-          output += `(reported by ${msg.author}).`;
-
-          await send_for_region(gym.region, output);
-          return try_delete(msg, 10000);
-        })
-      );
+      send_raid_report_notif(msg, handle);
     })
   );
 }
@@ -1894,6 +1907,11 @@ function handle_update(msg, handle, data) {
       return log_invalid(msg,
         `No unique gym match found for \`[${handle}]\` with an active raid.`
       );
+    }, function (msg, result) {
+      if ('tier' in assignment || 'despawn' in assignment) {
+        return send_raid_report_notif(msg, handle, 'updated');
+      }
+      return react_success(msg);
     })
   );
 }
