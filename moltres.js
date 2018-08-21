@@ -1624,8 +1624,8 @@ function send_raid_report_notif(msg, handle, verbed = 'reported') {
       if (!found_one) return;
       let [raid] = results;
 
-      let output = raid_report_notif(raid) +
-                   `(${verbed} by ${msg.author}).`;
+      let output = raid_report_notif(raid) + `(${verbed} ` +
+                   (from_dm(msg) ? 'via DM' : `by ${msg.author}`) + ').';
 
       await send_for_region(raid.region, output);
       return try_delete(msg, 10000);
