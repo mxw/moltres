@@ -1616,10 +1616,10 @@ function raid_report_notif(raid) {
 
   if (now < hatch) {
     return `${get_emoji('raidegg')} **T${raid.tier} egg** ` +
-           `hatches at ${gym_name(raid)} at ${time_str(hatch)} `;
+           `hatches at ${gym_name(raid)} at ${time_str(hatch)}`;
   }
   return `${get_emoji('boss')} **${fmt_tier_boss(raid)} raid** ` +
-         `despawns at ${gym_name(raid)} at ${time_str(raid.despawn)} `;
+         `despawns at ${gym_name(raid)} at ${time_str(raid.despawn)}`;
 }
 
 /*
@@ -1636,7 +1636,7 @@ function send_raid_report_notif(msg, handle, verbed = 'reported') {
       if (!found_one) return;
       let [raid] = results;
 
-      let output = raid_report_notif(raid) + `(${verbed} ` +
+      let output = raid_report_notif(raid) + ` (${verbed} ` +
                    (from_dm(msg) ? 'via DM' : `by ${msg.author}`) + ').';
 
       await send_for_region(raid.region, output);
