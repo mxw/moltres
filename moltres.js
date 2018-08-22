@@ -1853,9 +1853,32 @@ function handle_report(msg, handle, tier, boss, timer) {
     [tier, boss, despawn, msg.author.id, pop],
 
     mutation_handler(msg, function (msg, result) {
-      return log_invalid(msg,
-        `No unique gym match found for \`[${handle}]\` that doesn't ` +
-        'already have an active raid.'
+      // Re-query for error handling.
+      conn.query(
+        'SELECT * FROM gyms ' +
+        '   WHERE gyms.handle LIKE ? OR gyms.name LIKE ?',
+        Array(2).fill(`%${handle}%`),
+
+        errwrap(msg, function (msg, results) {
+          // Account for our preference for exact handle matches.
+          let maybe_unique = results.filter(raid => raid.handle === handle);
+          if (maybe_unique.length === 1) results = maybe_unique;
+
+          if (results.length === 0) {
+            return log_invalid(msg,
+              `No gyms found matching \`[${handle}]\`.`
+            );
+          }
+          if (results.length > 1) {
+            return log_invalid(msg,
+              `Ambiguous gym identifier \`[${handle}]\`.`
+            );
+          }
+          let [raid] = results;
+          return log_invalid(msg,
+            `Raid already reported for ${gym_name(raid)}.`
+          );
+        })
       );
     }, function (msg, result) {
       return send_raid_report_notif(msg, handle);
