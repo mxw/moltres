@@ -4,7 +4,7 @@
 'use strict';
 
 const Discord = require('discord.js');
-const mysql = require('mysql');
+const mysql = require('./async-mysql.js');
 const utils = require('./utils.js');
 
 let config = require('./config.js');
@@ -18,21 +18,27 @@ moltres.on('ready', () => {
   console.log(`Logged in as ${moltres.user.tag}.`);
 });
 
-const conn = mysql.createConnection({
+let conn, moltresdb;
+
+mysql.connect({
   host: 'localhost',
   user: 'moltres',
   password: config.moltresdb,
   database: 'moltresdb',
   supportBigNumbers: true,
   bigNumberStrings: true,
-});
+})
+.then(res => {
+  moltresdb = res;
+  conn = moltresdb.conn;
 
-conn.connect(function(err) {
-  if (err) {
-    console.error(`Error connecting to moltresdb: ${err.stack}`);
-    process.exit(1);
-  }
   console.log(`Connected as id ${conn.threadId}.`);
+
+  moltres.login(config.moltres);
+})
+.catch(err => {
+  console.error(`Error connecting to moltresdb: ${err.stack}`);
+  process.exit(1);
 });
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -880,6 +886,16 @@ function errwrap(msg, fn = null) {
 }
 
 /*
+ * Log a MySQL error.
+ */
+function log_mysql_error(msg, err) {
+  console.error(err);
+  return log_error(msg,
+    `MySQL error: ${err.code} (${err.errno}): ${err.sqlMessage})`
+  );
+}
+
+/*
  * Wrapper around common handling for mutation requests.
  */
 function mutation_handler(msg, failure = null, success = null) {
@@ -1476,65 +1492,60 @@ function list_gyms(gyms, incl_region = true, is_valid = null) {
   return output.join('\n');
 }
 
-function handle_gym(msg, handle) {
-  conn.query(
-    'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
-
-    errwrap(msg, async function (msg, results) {
-      let found_one = await check_one_gym(msg, handle, results);
-      if (!found_one) return;
-      let [gym] = results;
-
-      return send_quiet(msg.channel, gym_row_to_string(gym));
-    })
+async function handle_gym(msg, handle) {
+  let [results, err] = await moltresdb.query(
+    'SELECT * FROM gyms WHERE ' + where_one_gym(handle)
   );
+  if (err) return log_mysql_error(msg, err);
+
+  let found_one = await check_one_gym(msg, handle, results);
+  if (!found_one) return;
+  let [gym] = results;
+
+  return send_quiet(msg.channel, gym_row_to_string(gym));
 }
 
-function handle_ls_gyms(msg, region) {
+async function handle_ls_gyms(msg, region) {
   let region_clause = where_region(region);
-  let is_meta = region_clause.meta !== null;
 
-  conn.query(
-    'SELECT * FROM gyms WHERE ' + region_clause.sql,
-
-    errwrap(msg, function (msg, results) {
-      if (results.length === 0) {
-        return log_invalid(msg, `Invalid region name \`${region}\`.`);
-      }
-
-      let out_region = is_meta ? region_clause.meta : results[0].region;
-
-      let gym_list = list_gyms(results, false,
-        gym => (is_meta || gym.region === out_region)
-      );
-      if (gym_list === null) {
-        return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
-      }
-
-      let output = `Gyms in **${out_region}**:\n\n` + gym_list;
-      return send_quiet(msg.channel, output);
-    })
+  let [results, err] = await moltresdb.query(
+    'SELECT * FROM gyms WHERE ' + region_clause.sql
   );
+  if (err) return log_mysql_error(msg, err);
+
+  if (results.length === 0) {
+    return log_invalid(msg, `Invalid region name \`${region}\`.`);
+  }
+  let is_meta = region_clause.meta !== null;
+  let out_region = is_meta ? region_clause.meta : results[0].region;
+
+  let gym_list = list_gyms(results, false,
+    gym => (is_meta || gym.region === out_region)
+  );
+  if (gym_list === null) {
+    return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
+  }
+
+  let output = `Gyms in **${out_region}**:\n\n` + gym_list;
+  return send_quiet(msg.channel, output);
 }
 
-function handle_search_gym(msg, name) {
+async function handle_search_gym(msg, name) {
   let handle = name.replace(/ /g, '-');
 
-  conn.query(
+  let [results, err] = await moltresdb.query(
     'SELECT * FROM gyms WHERE handle LIKE ? OR name LIKE ?',
-    [`%${handle}%`, `%${name}%`],
-
-    errwrap(msg, function (msg, results) {
-      if (results.length === 0) {
-        return send_quiet(msg.channel,
-          `No gyms with handle or name matching ${name}.`
-        );
-      }
-
-      let output = `Gyms matching \`${name}\`:\n\n` + list_gyms(results);
-      return send_quiet(msg.channel, output);
-    })
+    [`%${handle}%`, `%${name}%`]
   );
+  if (err) return log_mysql_error(msg, err);
+
+  if (results.length === 0) {
+    return send_quiet(msg.channel,
+      `No gyms with handle or name matching ${name}.`
+    );
+  }
+  let output = `Gyms matching \`${name}\`:\n\n` + list_gyms(results);
+  return send_quiet(msg.channel, output);
 }
 
 function handle_add_gym(msg, handle, region, lat, lng, name) {
@@ -1557,28 +1568,28 @@ function handle_add_gym(msg, handle, region, lat, lng, name) {
   );
 }
 
-function handle_ls_regions(msg) {
-  conn.query(
-    'SELECT region FROM gyms GROUP BY region',
-    errwrap(msg, function (msg, results) {
-      if (results.length === 0) {
-        return send_quiet(msg.channel, 'No gyms have been registered.');
-      }
-      let regions = new Set(results.map(gym => gym.region));
-
-      let region_strs = Object.keys(config.metaregions).map(meta => {
-        let subregions = config.metaregions[meta];
-        for (let sr of subregions) regions.delete(sr);
-        return `**${meta}** (_${subregions.join(', ')}_)`
-      }).concat(
-        [...regions].map(r => `**${r}**`)
-      ).sort();
-
-      let output = 'List of **regions** with **registered gyms**:\n\n' +
-                   region_strs.join('\n');
-      return send_quiet(msg.channel, output);
-    })
+async function handle_ls_regions(msg) {
+  let [results, err] = await moltresdb.query(
+    'SELECT region FROM gyms GROUP BY region'
   );
+  if (err) return log_mysql_error(msg, err);
+
+  if (results.length === 0) {
+    return send_quiet(msg.channel, 'No gyms have been registered.');
+  }
+  let regions = new Set(results.map(gym => gym.region));
+
+  let region_strs = Object.keys(config.metaregions).map(meta => {
+    let subregions = config.metaregions[meta];
+    for (let sr of subregions) regions.delete(sr);
+    return `**${meta}** (_${subregions.join(', ')}_)`
+  }).concat(
+    [...regions].map(r => `**${r}**`)
+  ).sort();
+
+  let output = 'List of **regions** with **registered gyms**:\n\n' +
+               region_strs.join('\n');
+  return send_quiet(msg.channel, output);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1627,28 +1638,27 @@ function raid_report_notif(raid) {
 /*
  * Fetch and send a raid report notification for `msg' at `handle'.
  */
-function send_raid_report_notif(msg, handle, verbed = 'reported') {
-  conn.query(
+async function send_raid_report_notif(msg, handle, verbed = 'reported') {
+  let [results, err] = await moltresdb.query(
     'SELECT * FROM gyms ' +
     '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
-    '   WHERE ' + where_one_gym(handle),
-
-    errwrap(msg, async function (msg, results) {
-      let found_one = await check_one_gym(msg, handle, results);
-      if (!found_one) return;
-      let [raid] = results;
-
-      let output = raid_report_notif(raid) + ` (${verbed} ` +
-                   (from_dm(msg) ? 'via DM' : `by ${msg.author}`) + ').';
-
-      await send_for_region(raid.region, output);
-
-      if (from_dm(msg)) {
-        return dm_quiet(msg.author, output);
-      }
-      return try_delete(msg, 10000);
-    })
+    '   WHERE ' + where_one_gym(handle)
   );
+  if (err) return log_mysql_error(msg, err);
+
+  let found_one = await check_one_gym(msg, handle, results);
+  if (!found_one) return;
+  let [raid] = results;
+
+  let output = raid_report_notif(raid) + ` (${verbed} ` +
+               (from_dm(msg) ? 'via DM' : `by ${msg.author}`) + ').';
+
+  await send_for_region(raid.region, output);
+
+  if (from_dm(msg)) {
+    return dm_quiet(msg.author, output);
+  }
+  return try_delete(msg, 10000);
 }
 
 function handle_raid(msg, handle) {
@@ -1751,7 +1761,7 @@ hatch: ${time_str(hatch)}`;
   }));
 }
 
-function handle_ls_raids(msg, tier, region) {
+async function handle_ls_raids(msg, tier, region) {
   let now = get_now();
 
   let region_clause = {meta: config.area, sql: 'TRUE'};
@@ -1762,7 +1772,7 @@ function handle_ls_raids(msg, tier, region) {
     is_meta = region_clause.meta !== null;
   }
 
-  conn.query({
+  let [results, err] = await moltresdb.query({
     sql:
       'SELECT * FROM gyms ' +
       '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
@@ -1772,55 +1782,56 @@ function handle_ls_raids(msg, tier, region) {
       'ORDER BY gyms.region',
     values: [now],
     nestTables: true,
-  }, errwrap(msg, function (msg, results) {
-    if (results.length === 0) {
-      return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
+  });
+  if (err) return log_mysql_error(msg, err);
+
+  if (results.length === 0) {
+    return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
+  }
+
+  let out_region = is_meta ? region_clause.meta : results[0].gyms.region;
+  let rows_by_raid = {};
+
+  for (let row of results) {
+    if (!is_meta && row.gyms.region !== out_region) {
+      return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
+    }
+    if (tier && row.raids.tier !== tier) continue;
+
+    let handle = row.gyms.handle;
+    rows_by_raid[handle] = rows_by_raid[handle] || [];
+    rows_by_raid[handle].push(row);
+  }
+
+  let raids_expr = tier ? `**T${tier} raids**` : 'raids';
+  let output = `Active ${raids_expr} in **${out_region}**:\n`;
+
+  for (let handle in rows_by_raid) {
+    let [{gyms, raids, calls}] = rows_by_raid[handle];
+
+    let hatch = hatch_from_despawn(raids.despawn);
+    let boss = hatch > now ? `T${raids.tier} egg` : fmt_tier_boss(raids);
+    let timer_str = hatch > now
+      ? `hatches at ${time_str(hatch)}`
+      : `despawns at ${time_str(raids.despawn)}`
+
+    output += `\n\`[${handle}]\` **${boss}** ${timer_str}`;
+    if (is_meta) {
+      output += ` — _${gyms.region}_`;
     }
 
-    let out_region = is_meta ? region_clause.meta : results[0].gyms.region;
-    let rows_by_raid = {};
-
-    for (let row of results) {
-      if (!is_meta && row.gyms.region !== out_region) {
-        return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
-      }
-      if (tier && row.raids.tier !== tier) continue;
-
-      let handle = row.gyms.handle;
-      rows_by_raid[handle] = rows_by_raid[handle] || [];
-      rows_by_raid[handle].push(row);
+    if (calls.time !== null && should_display_calls(msg)) {
+      let times = rows_by_raid[handle]
+        .map(row => time_str(row.calls.time))
+        .join(', ');
+      output += `\n\tcalled time(s): ${times}`;
     }
-
-    let raids_expr = tier ? `**T${tier} raids**` : 'raids';
-    let output = `Active ${raids_expr} in **${out_region}**:\n`;
-
-    for (let handle in rows_by_raid) {
-      let [{gyms, raids, calls}] = rows_by_raid[handle];
-
-      let hatch = hatch_from_despawn(raids.despawn);
-      let boss = hatch > now ? `T${raids.tier} egg` : fmt_tier_boss(raids);
-      let timer_str = hatch > now
-        ? `hatches at ${time_str(hatch)}`
-        : `despawns at ${time_str(raids.despawn)}`
-
-      output += `\n\`[${handle}]\` **${boss}** ${timer_str}`;
-      if (is_meta) {
-        output += ` — _${gyms.region}_`;
-      }
-
-      if (calls.time !== null && should_display_calls(msg)) {
-        let times = rows_by_raid[handle]
-          .map(row => time_str(row.calls.time))
-          .join(', ');
-        output += `\n\tcalled time(s): ${times}`;
-      }
-    }
-    if (region !== null || config.admin_ids.has(msg.author.id)) {
-      return send_quiet(msg.channel, output);
-    } else {
-      return dm_reply_then_delete(msg, output);
-    }
-  }));
+  }
+  if (region !== null || config.admin_ids.has(msg.author.id)) {
+    return send_quiet(msg.channel, output);
+  } else {
+    return dm_reply_then_delete(msg, output);
+  }
 }
 
 function handle_report(msg, handle, tier, boss, timer) {
@@ -2821,5 +2832,3 @@ moltres.on('message', async msg => {
     }
   }
 });
-
-moltres.login(config.moltres);
