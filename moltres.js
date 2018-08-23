@@ -7,8 +7,10 @@ const Discord = require('discord.js');
 const mysql = require('mysql');
 const utils = require('./utils.js');
 
-var config = require('./config.js');
-var channels_for_region = compute_region_channel_map();
+let config = require('./config.js');
+let channels_for_region = compute_region_channel_map();
+
+///////////////////////////////////////////////////////////////////////////////
 
 const moltres = new Discord.Client();
 
@@ -534,9 +536,9 @@ const req_aliases = {
   'j':            'join',
 };
 
-var raid_data = require('./raid-data.js');
-var {raid_tiers, boss_aliases} = raid_data;
-var bosses_for_tier = compute_tier_boss_map();
+let raid_data = require('./raid-data.js');
+let {raid_tiers, boss_aliases} = raid_data;
+let bosses_for_tier = compute_tier_boss_map();
 
 const gyaoo = 'Gyaoo!';
 
