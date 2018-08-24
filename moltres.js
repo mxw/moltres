@@ -18,7 +18,7 @@ moltres.on('ready', () => {
   console.log(`Logged in as ${moltres.user.tag}.`);
 });
 
-let conn, moltresdb;
+let moltresdb;
 
 mysql.connect({
   host: 'localhost',
@@ -30,9 +30,7 @@ mysql.connect({
 })
 .then(res => {
   moltresdb = res;
-  conn = moltresdb.conn;
-
-  console.log(`Connected as id ${conn.threadId}.`);
+  console.log(`Connected as id ${moltresdb.conn.threadId}.`);
 
   moltres.login(config.moltres);
 })
@@ -45,7 +43,7 @@ mysql.connect({
 
 function cleanup() {
   moltres.destroy();
-  conn.end();
+  moltresdb.end().catch(console.error);
 }
 
 function signal_handler(signal) {
@@ -2787,23 +2785,22 @@ async function handle_request_with_check(msg, request, argv) {
     return handle_request(msg, request, argv);
   }
 
-  conn.query(
+  let [results, err] = await moltresdb.query(
     'SELECT * FROM permissions WHERE (cmd = ? AND user_id = ?)',
-    [req_to_perm[request] || request, msg.author.id],
+    [req_to_perm[request] || request, msg.author.id]
+  );
+  if (err) return log_mysql_error(msg, err);
 
-    errwrap(msg, async function (msg, results) {
-      let permitted =
-        (results.length === 1 && req_meta.perms === Permission.WHITELIST) ||
-        (results.length === 0 && req_meta.perms === Permission.BLACKLIST);
+  let permitted =
+    (results.length === 1 && req_meta.perms === Permission.WHITELIST) ||
+    (results.length === 0 && req_meta.perms === Permission.BLACKLIST);
 
-      if (permitted) {
-        return handle_request(msg, request, argv);
-      }
-      return log_invalid(msg,
-        `User ${msg.author.tag} does not have permissions for ${request} ` +
-        get_emoji('dealwithit') + '.'
-      );
-    })
+  if (permitted) {
+    return handle_request(msg, request, argv);
+  }
+  return log_invalid(msg,
+    `User ${msg.author.tag} does not have permissions for ${request} ` +
+    get_emoji('dealwithit') + '.'
   );
 }
 

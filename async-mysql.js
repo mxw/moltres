@@ -25,12 +25,16 @@ AsyncConnection.prototype.query = function(...args) {
 };
 
 /*
- * Gracefully close the connection, returning an Error or nullish.
+ * Gracefully close the connection, throwing an Error or resolving nullish.
  */
 AsyncConnection.prototype.end = function() {
   return new Promise((resolve, reject) => {
     this.conn.end(function (err) {
-      resolve(err);
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
     });
   });
 };
