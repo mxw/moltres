@@ -1035,7 +1035,7 @@ function parse_month_day(date) {
   let matches = date.match(/^(\d{1,2})\/(\d\d)$/);
   if (matches === null) return null;
 
-  let [_, month, day] = matches;
+  let [, month, day] = matches;
   [month, day] = [parseInt(month), parseInt(day)];
 
   let now = get_now();
@@ -1058,7 +1058,7 @@ function parse_hour_minute(time) {
   let matches = time.match(/^(\d{1,2})[:.](\d\d)$/);
   if (matches === null) return null;
 
-  let [_, hours, mins] = matches;
+  let [, hours, mins] = matches;
   [hours, mins] = [parseInt(hours), parseInt(mins)];
   if (hours >= 24 || mins >= 60) return null;
 
@@ -1133,7 +1133,7 @@ function parse_timer(timer) {
   let matches = timer.match(/^(\d{1,2})[:.](\d\d)$/);
   if (matches === null) return null;
 
-  let [_, mins, secs] = matches;
+  let [, mins, secs] = matches;
   if (secs >= 60) return null;
 
   return { mins: parseInt(mins), secs: parseInt(secs) };
@@ -2415,7 +2415,7 @@ function ex_room_name(handle, date) {
  * Extract the gym handle, month, and day from an EX raid room name.
  */
 function ex_room_components(room_name) {
-  let [_, handle, month, day] = room_name.match(ex_room_capture);
+  let [, handle, month, day] = room_name.match(ex_room_capture);
   return {
     handle: handle,
     month: capitalize(month),
