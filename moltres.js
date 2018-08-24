@@ -1066,7 +1066,7 @@ function parse_hour_minute(time) {
 
   hours = function() {
     // 24-hour time; let the user use exactly that time.
-    if (hours >= 13) return hours;
+    if (hours == 0 || hours >= 13) return hours;
     // Same or later morning hour.
     if (hours >= now.getHours()) return hours;
     // Same or later afternoon hour if we interpret as P.M.
