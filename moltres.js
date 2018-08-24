@@ -1361,19 +1361,26 @@ function handle_help(msg, req) {
   }
 }
 
-function handle_set_perm(msg, user_tag, req) {
+async function handle_set_perm(msg, user_tag, req) {
   if (!user_tag.match(Discord.MessageMentions.USERS_PATTERN) ||
       msg.mentions.users.size !== 1) {
     return log_invalid(msg, `Invalid user tag \`${user_tag}\`.`);
   }
-  let user_id = msg.mentions.users.first().id;
+  let user = msg.mentions.users.first();
 
-  conn.query(
+  let [result, err] = await moltresdb.query(
     'INSERT INTO permissions SET ?',
     { cmd: req,
-      user_id: user_id, },
-    mutation_handler(msg)
+      user_id: user.id, }
   );
+  if (err) return log_mysql_error(msg, err);
+
+  if (result.affectedRows === 0) {
+    return log_invalid(msg,
+      `Permission ${req} for ${user} was already set.`
+    );
+  }
+  return react_success(msg);
 }
 
 function handle_reload_config(msg) {
@@ -1547,7 +1554,7 @@ async function handle_search_gym(msg, name) {
   return send_quiet(msg.channel, output);
 }
 
-function handle_add_gym(msg, handle, region, lat, lng, name) {
+async function handle_add_gym(msg, handle, region, lat, lng, name) {
   handle = handle.toLowerCase();
 
   if (lat.charAt(lat.length - 1) === ',') {
@@ -1556,15 +1563,20 @@ function handle_add_gym(msg, handle, region, lat, lng, name) {
 
   region = region.replace(/-/g, ' ');
 
-  conn.query(
+  let [result, err] = await moltresdb.query(
     'INSERT INTO gyms SET ?',
     { handle: handle,
       name: name,
       region: region,
       lat: lat,
-      lng: lng, },
-    mutation_handler(msg)
+      lng: lng, }
   );
+  if (err) return log_mysql_error(msg, err);
+
+  if (result.affectedRows === 0) {
+    return log_invalid(msg, 'Unknown failure.');
+  }
+  return react_success(msg);
 }
 
 async function handle_ls_regions(msg) {
@@ -1676,12 +1688,17 @@ async function handle_raid(msg, handle) {
 
   if (raids.despawn < now) {
     // Clean up expired raids.
-    conn.query(
-      'DELETE FROM raids WHERE gym_id = ?',
-      [raids.gym_id],
-      errwrap(msg)
-    );
-    return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
+    let gen_cleanup = async() => {
+      let [result, err] = await moltresdb.query(
+        'DELETE FROM raids WHERE gym_id = ?',
+        [raids.gym_id]
+      );
+      if (err) return log_mysql_error(msg, err);
+    };
+    return Promise.all([
+      gen_cleanup(),
+      chain_reaccs(msg, 'no_entry_sign', 'raidegg'),
+    ]);
   }
 
   let hatch = hatch_from_despawn(raids.despawn);
