@@ -468,9 +468,9 @@ const reqs = {
     access: Access.EX_MAIN,
     usage: '',
     args: [],
-    desc: 'List all EX raiders in the current EX raid room.',
+    desc: 'List all active EX raid rooms.',
     detail: [
-      'Can only be used from EX raid rooms.',
+      'Can only be used from the designated EX raid discussion channel.',
     ],
     examples: {
     },
