@@ -1003,17 +1003,15 @@ const full_join_table =
 /*
  * Select all rows from the full left-join raid-rsvps table for a unique gym
  * `handle' and satisfying `xtra_where'.
- *
- * Call `fn' to handle the result of the query.
  */
-function select_rsvps(xtra_where, xtra_values, handle, fn) {
-  conn.query({
+function select_rsvps(xtra_where, xtra_values, handle) {
+  return moltresdb.query({
     sql:
       'SELECT * FROM ' + full_join_table +
       '   WHERE ' + where_one_gym(handle) + xtra_where,
     values: xtra_values,
     nestTables: true,
-  }, fn);
+  });
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1661,104 +1659,105 @@ async function send_raid_report_notif(msg, handle, verbed = 'reported') {
   return try_delete(msg, 10000);
 }
 
-function handle_raid(msg, handle) {
+async function handle_raid(msg, handle) {
   let now = get_now();
 
-  select_rsvps('', [], handle, errwrap(msg, async function (msg, results) {
-    if (results.length < 1) {
-      await chain_reaccs(msg, 'no_entry_sign', 'raidegg');
-      return send_quiet(msg.channel,
-        `No unique raid found for \`[${handle}]\`.`
-      );
-    }
-    let [{gyms, raids, calls}] = results;
+  let [results, err] = await select_rsvps('', [], handle);
+  if (err) return log_mysql_error(msg, err);
 
-    if (raids.despawn < now) {
-      // Clean up expired raids.
-      conn.query(
-        'DELETE FROM raids WHERE gym_id = ?',
-        [raids.gym_id],
-        errwrap(msg)
-      );
-      return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
-    }
+  if (results.length < 1) {
+    await chain_reaccs(msg, 'no_entry_sign', 'raidegg');
+    return send_quiet(msg.channel,
+      `No unique raid found for \`[${handle}]\`.`
+    );
+  }
+  let [{gyms, raids, calls}] = results;
 
-    let hatch = hatch_from_despawn(raids.despawn);
+  if (raids.despawn < now) {
+    // Clean up expired raids.
+    conn.query(
+      'DELETE FROM raids WHERE gym_id = ?',
+      [raids.gym_id],
+      errwrap(msg)
+    );
+    return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
+  }
 
-    let output = gym_row_to_string(gyms) + '\n';
-    if (now >= hatch) {
-      output +=`
+  let hatch = hatch_from_despawn(raids.despawn);
+
+  let output = gym_row_to_string(gyms) + '\n';
+  if (now >= hatch) {
+    output +=`
 raid: **${fmt_tier_boss(raids)}**
 despawn: ${time_str(raids.despawn)}`;
-    } else {
-      output +=`
+  } else {
+    output +=`
 raid egg: **T${raids.tier}**
 hatch: ${time_str(hatch)}`;
-    }
+  }
 
-    if (raids.team) {
-      output += `\nlast known team: ${get_emoji(raids.team)}`;
-    }
+  if (raids.team) {
+    output += `\nlast known team: ${get_emoji(raids.team)}`;
+  }
 
-    if (calls.time !== null && should_display_calls(msg)) {
-      output += '\n\ncall time(s):';
+  if (calls.time !== null && should_display_calls(msg)) {
+    output += '\n\ncall time(s):';
 
-      let times = [];
-      let rows_by_time = {};
+    let times = [];
+    let rows_by_time = {};
 
-      // Order and de-dup the call times and bucket rows by those times.
-      for (let row of results) {
-        let t = row.calls.time.getTime();
+    // Order and de-dup the call times and bucket rows by those times.
+    for (let row of results) {
+      let t = row.calls.time.getTime();
 
-        if (!(t in rows_by_time)) {
-          times.push(t);
-          rows_by_time[t] = [];
-        }
-        rows_by_time[t].push(row);
+      if (!(t in rows_by_time)) {
+        times.push(t);
+        rows_by_time[t] = [];
       }
-      times.sort();
-
-      // Append details for each call time.
-      for (let t of times) {
-        let [{calls}] = rows_by_time[t];
-
-        let caller_rsvp = null;
-        let total = 0;
-
-        // Get an array of attendee strings, removing the raid time caller.
-        let attendees = rows_by_time[t].map(row => {
-          let member = guild().members.get(row.rsvps.user_id);
-          if (!member) return null;
-
-          total += (row.rsvps.extras + 1);
-
-          if (member.user.id === calls.caller) {
-            caller_rsvp = row.rsvps;
-            return null;
-          }
-
-          let extras = row.rsvps.extras !== 0
-            ? ` +${row.rsvps.extras}`
-            : '';
-          return `${member.nickname || member.user.username}${extras}`
-        }).filter(a => a !== null);
-
-        let caller_str = '';
-
-        if (caller_rsvp !== null) {
-          let caller = guild().members.get(calls.caller);
-          caller_str =
-            `${caller.nickname || caller.user.username} _(caller)_` +
-            (caller_rsvp.extras !== 0 ? ` +${caller_rsvp.extras}` : '') +
-            (attendees.length !== 0 ? ', ' : '');
-        }
-        output += `\n- **${time_str(calls.time)}** (${total} raiders)—` +
-                  `${caller_str}${attendees.join(', ')}`;
-      }
+      rows_by_time[t].push(row);
     }
+    times.sort();
 
-    return send_quiet(msg.channel, output);
-  }));
+    // Append details for each call time.
+    for (let t of times) {
+      let [{calls}] = rows_by_time[t];
+
+      let caller_rsvp = null;
+      let total = 0;
+
+      // Get an array of attendee strings, removing the raid time caller.
+      let attendees = rows_by_time[t].map(row => {
+        let member = guild().members.get(row.rsvps.user_id);
+        if (!member) return null;
+
+        total += (row.rsvps.extras + 1);
+
+        if (member.user.id === calls.caller) {
+          caller_rsvp = row.rsvps;
+          return null;
+        }
+
+        let extras = row.rsvps.extras !== 0
+          ? ` +${row.rsvps.extras}`
+          : '';
+        return `${member.nickname || member.user.username}${extras}`
+      }).filter(a => a !== null);
+
+      let caller_str = '';
+
+      if (caller_rsvp !== null) {
+        let caller = guild().members.get(calls.caller);
+        caller_str =
+          `${caller.nickname || caller.user.username} _(caller)_` +
+          (caller_rsvp.extras !== 0 ? ` +${caller_rsvp.extras}` : '') +
+          (attendees.length !== 0 ? ', ' : '');
+      }
+      output += `\n- **${time_str(calls.time)}** (${total} raiders)—` +
+                `${caller_str}${attendees.join(', ')}`;
+    }
+  }
+
+  return send_quiet(msg.channel, output);
 }
 
 async function handle_ls_raids(msg, tier, region) {
@@ -2004,26 +2003,32 @@ function handle_scrub(msg, handle) {
 // Raid call handlers.
 
 /*
- * Get an array of all the users (and associated metadata) attending the raid
- * at `handle' at `time'.
+ * Get all the users (and associated metadata) attending the raid at `handle'
+ * at `time'.
+ *
+ * Returns a [{gyms, raids, calls}, raiders_array] tuple.
  */
-function get_all_raiders(msg, handle, time, fn) {
-  select_rsvps('AND ' + where_call_time(time), [], handle,
-    errwrap(msg, function (msg, results) {
-      if (results.length < 1) return fn(msg, null, []);
-
-      let raiders = [];
-
-      for (let row of results) {
-        let member = guild().members.get(row.rsvps.user_id);
-        if (member) raiders.push({
-          member: member,
-          extras: row.rsvps.extras,
-        });
-      }
-      return fn(msg, results[0], raiders);
-    })
+async function get_all_raiders(msg, handle, time) {
+  let [results, err] = await select_rsvps(
+    'AND ' + where_call_time(time), [], handle
   );
+  if (err) {
+    await log_mysql_error(msg, err);
+    return [null, []];
+  }
+
+  if (results.length < 1) return [null, []];
+
+  let raiders = [];
+
+  for (let row of results) {
+    let member = guild().members.get(row.rsvps.user_id);
+    if (member) raiders.push({
+      member: member,
+      extras: row.rsvps.extras,
+    });
+  }
+  return [results[0], raiders];
 }
 
 /*
@@ -2051,20 +2056,20 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
   let delay = alarm_time - get_now();
   if (delay <= 0) return;
 
-  setTimeout(function() {
-    get_all_raiders(msg, handle, call_time, function (msg, row, raiders) {
-      // The call time might have changed, or everyone may have unjoined.
-      if (row === null || raiders.length === 0) return;
+  setTimeout(async function() {
+    let [row, raiders] = await get_all_raiders(msg, handle, call_time);
 
-      let output =
-        `${gyaoo} ${get_emoji('alarm_clock')} ` +
-        `Raid call for ${gym_name(row.gyms)} ` +
-        `at \`${time_str(call_time)}\` is in ${before} minutes!` +
-        `\n\n${raiders.map(r => r.member.user).join(' ')} ` +
-        `(${raiders.reduce((sum, r) => sum + 1 + r.extras, 0)} raiders)`;
+    // The call time might have changed, or everyone may have unjoined.
+    if (row === null || raiders.length === 0) return;
 
-      return send_for_region(row.gyms.region, output);
-    });
+    let output =
+      `${gyaoo} ${get_emoji('alarm_clock')} ` +
+      `Raid call for ${gym_name(row.gyms)} ` +
+      `at \`${time_str(call_time)}\` is in ${before} minutes!` +
+      `\n\n${raiders.map(r => r.member.user).join(' ')} ` +
+      `(${raiders.reduce((sum, r) => sum + 1 + r.extras, 0)} raiders)`;
+
+    return send_for_region(row.gyms.region, output);
   }, delay);
 
   return log_impl(msg,
@@ -2259,35 +2264,35 @@ function handle_change_time(msg, handle, current, to, desired) {
         `No raid at \`${time_str(current)}\` found for \`[${handle}]\` ` +
         `(or \`${time_str(desired)}\` is not a valid raid time).`
       );
-    }, function (msg, result) {
-      get_all_raiders(msg, handle, desired, function (msg, row, raiders) {
-        // No raiders is weird, but it could happen if everyone unjoins and
-        // someone decides to change the raid time for no meaningful reason.
-        if (row === null || raiders.length === 0) return;
-        let handle = row.gyms.handle;
+    }, async function (msg, result) {
+      let [row, raiders] = await get_all_raiders(msg, handle, desired);
 
-        // Move the join message cache entry.
-        join_cache_set(handle, desired, join_cache_get(handle, current));
-        join_cache_set(handle, current, null);
+      // No raiders is weird, but it could happen if everyone unjoins and
+      // someone decides to change the raid time for no meaningful reason.
+      if (row === null || raiders.length === 0) return;
+      let handle = row.gyms.handle;
 
-        raiders = raiders
-          .map(r => r.member.user)
-          .filter(user => user.id != msg.author.id);
+      // Move the join message cache entry.
+      join_cache_set(handle, desired, join_cache_get(handle, current));
+      join_cache_set(handle, current, null);
 
-        let output =
-          `Raid time changed for ${gym_name(row.gyms)} ` +
-          `from ${time_str(current)} to ${time_str(desired)} ` +
-          `by ${msg.author}.  ${gyaoo}`;
+      raiders = raiders
+        .map(r => r.member.user)
+        .filter(user => user.id != msg.author.id);
 
-        if (raiders.length !== 0) {
-          output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
-        }
-        return Promise.all([
-          send_for_region(row.gyms.region, output),
-          set_raid_alarm(msg, handle, desired),
-        ]);
-      });
-    })
+      let output =
+        `Raid time changed for ${gym_name(row.gyms)} ` +
+        `from ${time_str(current)} to ${time_str(desired)} ` +
+        `by ${msg.author}.  ${gyaoo}`;
+
+      if (raiders.length !== 0) {
+        output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
+      }
+      return Promise.all([
+        send_for_region(row.gyms.region, output),
+        set_raid_alarm(msg, handle, desired),
+      ]);
+    });
   );
 }
 
@@ -2318,56 +2323,57 @@ function handle_join(msg, handle, call_time, extras) {
           ? ` with called time \`${time_str(call_time)}\`.`
           : '.  Either none or multiple have been called.')
       );
-    }, function (msg, result) {
-      get_all_raiders(msg, handle, call_time, async (msg, row, raiders) => {
-        // The call time might have changed, or everyone may have unjoined.
-        if (row === null || raiders.length === 0) return;
-        let {gyms, raids, calls} = row;
-        let handle = gyms.handle;
+    }, async function (msg, result) {
+      let [row, raiders] = await get_all_raiders(msg, handle, call_time);
 
-        raiders = raiders.filter(r => r.member.id != msg.author.id);
+      // The call time might have changed, or everyone may have unjoined.
+      if (row === null || raiders.length === 0) return;
 
-        let joining_str = extras > 0 ? `joining with +${extras}` : 'joining';
+      let {gyms, raids, calls} = row;
+      let handle = gyms.handle;
 
-        let output = get_emoji('team') + '  ' +
-          `${msg.author} is ${joining_str} at ${time_str(calls.time)} ` +
-          `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
+      raiders = raiders.filter(r => r.member.id != msg.author.id);
 
-        if (raiders.length !== 0) {
-          let names = raiders.map(
-            r => r.member.nickname || r.member.user.username
-          );
-          output += ` (with ${names.join(', ')}).`;
-        } else {
-          output += '.';
+      let joining_str = extras > 0 ? `joining with +${extras}` : 'joining';
+
+      let output = get_emoji('team') + '  ' +
+        `${msg.author} is ${joining_str} at ${time_str(calls.time)} ` +
+        `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
+
+      if (raiders.length !== 0) {
+        let names = raiders.map(
+          r => r.member.nickname || r.member.user.username
+        );
+        output += ` (with ${names.join(', ')}).`;
+      } else {
+        output += '.';
+      }
+
+      output += '\n\nTo join this raid time, enter ';
+      if (!!call_time) {
+        output += `\`$join ${handle} ${time_str_short(calls.time)}\`.`;
+      } else {
+        output += `\`$join ${handle}\`.`;
+      }
+
+      let join_msgs = await send_for_region(gyms.region, output);
+
+      // Clear any existing join message for this raid.
+      let replace_prev_msg = function() {
+        let prev = join_cache_get(handle, calls.time);
+        join_cache_set(handle, calls.time, join_msgs);
+        if (prev) {
+          return Promise.all(prev.map(join => try_delete(join)));
         }
+      };
 
-        output += '\n\nTo join this raid time, enter ';
-        if (!!call_time) {
-          output += `\`$join ${handle} ${time_str_short(calls.time)}\`.`;
-        } else {
-          output += `\`$join ${handle}\`.`;
-        }
-
-        let join_msgs = await send_for_region(gyms.region, output);
-
-        // Clear any existing join message for this raid.
-        let replace_prev_msg = function() {
-          let prev = join_cache_get(handle, calls.time);
-          join_cache_set(handle, calls.time, join_msgs);
-          if (prev) {
-            return Promise.all(prev.map(join => try_delete(join)));
-          }
-        };
-
-        // Delete the $join request, delete any previous join message, and
-        // cache this one for potential later deletion.
-        return Promise.all([
-          replace_prev_msg(),
-          try_delete(msg, 3000),
-        ]);
-      });
-    })
+      // Delete the $join request, delete any previous join message, and
+      // cache this one for potential later deletion.
+      return Promise.all([
+        replace_prev_msg(),
+        try_delete(msg, 3000),
+      ]);
+    });
   );
 }
 
