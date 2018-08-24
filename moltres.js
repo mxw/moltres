@@ -2544,105 +2544,102 @@ function ex_cache_take(room_name) {
   return [...uids];
 }
 
-function handle_ex(msg, handle, date) {
+async function handle_ex(msg, handle, date) {
   if (date instanceof InvalidArg) {
     return log_invalid(msg, `Invalid MM/DD date \`${date.arg}\`.`);
   }
 
-  conn.query(
-    'SELECT * FROM gyms WHERE ' + where_one_gym(handle),
-
-    errwrap(msg, async function (msg, results) {
-      let found_one = await check_one_gym(msg, handle, results);
-      if (!found_one) return;
-      let [gym] = results;
-
-      if (!gym.ex) {
-        return log_invalid(msg,
-          `${gym_name(gym)} is not an EX raid location.`
-        );
-      }
-
-      let room_re = new RegExp(`^${gym.handle}-\\w+-\\d\\d$`);
-
-      // We'd prefer to only search the channels in the category, but a bug in
-      // the current version of discord.js prevents the list of children from
-      // getting updated.
-      //
-      // let chan_list = 'category' in config.ex
-      //   ? moltres.channels.get(config.ex.category).children
-      //   : guild().channels;
-      let chan_list = guild().channels;
-
-      let room = chan_list.find(c => !!c.name.match(room_re));
-
-      if (room !== null) {
-        if (date !== null) {
-          // Check for a mismatched date.
-          let room_name = ex_room_name(gym.handle, date);
-          if (room.name !== room_name) {
-            let ex = ex_room_components(room.name);
-            return log_invalid(msg,
-              `Incorrect EX raid date ${date_str(date)} for ` +
-              `${gym_name(gym)}.  A room has already been created for ` +
-              `${ex.month} ${ex.day}.`
-            );
-          }
-        }
-        return enter_ex_room(msg.author.id, room);
-      }
-      // Otherwise, we need to create a room.
-
-      if (date === null) {
-        return log_invalid(msg,
-          `Must provide a date for new EX raid at ${gym_name(gym)}.`
-        );
-      }
-      let room_name = ex_room_name(gym.handle, date);
-
-      // Check to see if anyone is already creating this room.  If so, we
-      // should just add ourselves to the ex_cache entry and move on.
-      if (ex_cache_found(room_name)) {
-        return ex_cache_insert(room_name, msg.author.id);
-      }
-
-      // Create an entry in the ex_cache representing our initiation of room
-      // creation.  Anyone who attempts to create the same room before the API
-      // call completes adds themselves above to the cache entry instead of
-      // racing and creating a room of the same name.
-      ex_cache_insert(room_name, msg.author.id);
-      room = await create_ex_room(room_name, gym, date);
-
-      let uids = ex_cache_take(room_name);
-      return Promise.all(uids.map(id => enter_ex_room(id, room)));
-    })
+  let [results, err] = await moltresdb.query(
+    'SELECT * FROM gyms WHERE ' + where_one_gym(handle)
   );
+  if (err) return log_mysql_error(msg, err);
+
+  let found_one = await check_one_gym(msg, handle, results);
+  if (!found_one) return;
+  let [gym] = results;
+
+  if (!gym.ex) {
+    return log_invalid(msg, `${gym_name(gym)} is not an EX raid location.`);
+  }
+
+  let room_re = new RegExp(`^${gym.handle}-\\w+-\\d\\d$`);
+
+  // We'd prefer to only search the channels in the category, but a bug in
+  // the current version of discord.js prevents the list of children from
+  // getting updated.
+  //
+  // let chan_list = 'category' in config.ex
+  //   ? moltres.channels.get(config.ex.category).children
+  //   : guild().channels;
+  let chan_list = guild().channels;
+
+  let room = chan_list.find(c => !!c.name.match(room_re));
+
+  if (room !== null) {
+    if (date !== null) {
+      // Check for a mismatched date.
+      let room_name = ex_room_name(gym.handle, date);
+      if (room.name !== room_name) {
+        let ex = ex_room_components(room.name);
+        return log_invalid(msg,
+          `Incorrect EX raid date ${date_str(date)} for ` +
+          `${gym_name(gym)}.  A room has already been created for ` +
+          `${ex.month} ${ex.day}.`
+        );
+      }
+    }
+    return enter_ex_room(msg.author.id, room);
+  }
+  // Otherwise, we need to create a room.
+
+  if (date === null) {
+    return log_invalid(msg,
+      `Must provide a date for new EX raid at ${gym_name(gym)}.`
+    );
+  }
+  let room_name = ex_room_name(gym.handle, date);
+
+  // Check to see if anyone is already creating this room.  If so, we
+  // should just add ourselves to the ex_cache entry and move on.
+  if (ex_cache_found(room_name)) {
+    return ex_cache_insert(room_name, msg.author.id);
+  }
+
+  // Create an entry in the ex_cache representing our initiation of room
+  // creation.  Anyone who attempts to create the same room before the API
+  // call completes adds themselves above to the cache entry instead of
+  // racing and creating a room of the same name.
+  ex_cache_insert(room_name, msg.author.id);
+  room = await create_ex_room(room_name, gym, date);
+
+  let uids = ex_cache_take(room_name);
+  return Promise.all(uids.map(id => enter_ex_room(id, room)));
 }
 
-function handle_explore(msg) {
+async function handle_explore(msg) {
   let room_info = new Map(guild().channels
     .filter(is_ex_room)
     .map(room => ex_room_components(room.name))
     .map(info => [info.handle, info])
   );
 
-  conn.query(
+  let [results, err] = await moltresdb.query(
     'SELECT * FROM gyms WHERE handle IN (' +
         Array(room_info.size).fill('?').join(',') +
     ') ORDER BY handle',
-    [...room_info.keys()],
-
-    errwrap(msg, function (msg, results) {
-      let output = 'Active EX raid rooms:\n\n' + results
-        .map(gym => {
-          let info = room_info.get(gym.handle);
-          const end = ' (EX!)'.length;
-          return `${gym_name(gym).slice(0, -end)} (${info.month} ${info.day})`;
-        })
-        .join('\n');
-      return send_quiet(msg.channel, output);
-    })
+    [...room_info.keys()]
   );
+  if (err) return log_mysql_error(msg, err);
+
+  let output = 'Active EX raid rooms:\n\n' + results
+    .map(gym => {
+      let info = room_info.get(gym.handle);
+      const end = ' (EX!)'.length;
+      return `${gym_name(gym).slice(0, -end)} (${info.month} ${info.day})`;
+    })
+    .join('\n');
+
+  return send_quiet(msg.channel, output);
 }
 
 async function handle_exit(msg) {
