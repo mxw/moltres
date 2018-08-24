@@ -1373,12 +1373,17 @@ async function handle_set_perm(msg, user_tag, req) {
     { cmd: req,
       user_id: user.id, }
   );
-  if (err) return log_mysql_error(msg, err);
+  if (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return log_invalid(msg,
+        `Permission \`${req}\` for ${user} was already set.`
+      );
+    }
+    return log_mysql_error(msg, err);
+  }
 
   if (result.affectedRows === 0) {
-    return log_invalid(msg,
-      `Permission ${req} for ${user} was already set.`
-    );
+    return log_invalid(msg, 'Unknown failure.');
   }
   return react_success(msg);
 }
