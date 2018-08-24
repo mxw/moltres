@@ -1004,11 +1004,12 @@ const full_join_table =
  * Select all rows from the full left-join raid-rsvps table for a unique gym
  * `handle' and satisfying `xtra_where'.
  */
-function select_rsvps(xtra_where, xtra_values, handle) {
+function select_rsvps(handle, xtra_where = null, xtra_values = []) {
   return moltresdb.query({
     sql:
       'SELECT * FROM ' + full_join_table +
-      '   WHERE ' + where_one_gym(handle) + xtra_where,
+      '   WHERE ' + where_one_gym(handle) +
+      (xtra_where ? ` AND (${xtra_where})` : ''),
     values: xtra_values,
     nestTables: true,
   });
@@ -1662,7 +1663,7 @@ async function send_raid_report_notif(msg, handle, verbed = 'reported') {
 async function handle_raid(msg, handle) {
   let now = get_now();
 
-  let [results, err] = await select_rsvps('', [], handle);
+  let [results, err] = await select_rsvps(handle);
   if (err) return log_mysql_error(msg, err);
 
   if (results.length < 1) {
@@ -2009,9 +2010,7 @@ function handle_scrub(msg, handle) {
  * Returns a [{gyms, raids, calls}, raiders_array] tuple.
  */
 async function get_all_raiders(msg, handle, time) {
-  let [results, err] = await select_rsvps(
-    'AND ' + where_call_time(time), [], handle
-  );
+  let [results, err] = await select_rsvps(handle, where_call_time(time));
   if (err) {
     await log_mysql_error(msg, err);
     return [null, []];
