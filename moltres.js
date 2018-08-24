@@ -1032,7 +1032,7 @@ function get_now() {
  * Parse a date given by MM/DD as a Date object.
  */
 function parse_month_day(date) {
-  let matches = date.match(/^(\d{1,2})\/(\d\d)$/);
+  let matches = date.match(/^(\d{1,2})\/(\d{1,2})$/);
   if (matches === null) return null;
 
   let [, month, day] = matches;
