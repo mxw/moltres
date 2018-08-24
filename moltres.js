@@ -1834,7 +1834,7 @@ async function handle_ls_raids(msg, tier, region) {
   }
 }
 
-function handle_report(msg, handle, tier, boss, timer) {
+async function handle_report(msg, handle, tier, boss, timer) {
   if (tier instanceof InvalidArg) {
     return log_invalid(msg, `Invalid raid tier \`${tier.arg}\`.`);
   }
@@ -1853,7 +1853,7 @@ function handle_report(msg, handle, tier, boss, timer) {
 
   let pop = pop_from_despawn(despawn);
 
-  conn.query(
+  let [result, err] = await moltresdb.query(
     'REPLACE INTO raids (gym_id, tier, boss, despawn, spotter) ' +
     '   SELECT gyms.id, ?, ?, ?, ? FROM gyms ' +
     '   WHERE ' + where_one_gym(handle) +
@@ -1863,39 +1863,41 @@ function handle_report(msg, handle, tier, boss, timer) {
     '         WHERE gym_id = gyms.id ' +
     '         AND despawn > ? ' +
     '     ) ',
-    [tier, boss, despawn, msg.author.id, pop],
+    [tier, boss, despawn, msg.author.id, pop]
+  );
+  if (err) return log_mysql_error(msg, err);
 
-    mutation_handler(msg, function (msg, result) {
-      // Re-query for error handling.
-      conn.query(
-        'SELECT * FROM gyms ' +
-        '   WHERE gyms.handle LIKE ? OR gyms.name LIKE ?',
-        Array(2).fill(`%${handle}%`),
+  if (result.affectedRows !== 0) {
+    return send_raid_report_notif(msg, handle);
+  }
 
-        errwrap(msg, function (msg, results) {
-          // Account for our preference for exact handle matches.
-          let maybe_unique = results.filter(raid => raid.handle === handle);
-          if (maybe_unique.length === 1) results = maybe_unique;
+  let results;
 
-          if (results.length === 0) {
-            return log_invalid(msg,
-              `No gyms found matching \`[${handle}]\`.`
-            );
-          }
-          if (results.length > 1) {
-            return log_invalid(msg,
-              `Ambiguous gym identifier \`[${handle}]\`.`
-            );
-          }
-          let [raid] = results;
-          return log_invalid(msg,
-            `Raid already reported for ${gym_name(raid)}.`
-          );
-        })
-      );
-    }, function (msg, result) {
-      return send_raid_report_notif(msg, handle);
-    })
+  // Re-query for error handling.
+  [results, err] = await moltresdb.query(
+    'SELECT * FROM gyms ' +
+    '   WHERE gyms.handle LIKE ? OR gyms.name LIKE ?',
+    Array(2).fill(`%${handle}%`)
+  );
+  if (err) return log_mysql_error(msg, err);
+
+  // Account for our preference for exact handle matches.
+  let maybe_unique = results.filter(raid => raid.handle === handle);
+  if (maybe_unique.length === 1) results = maybe_unique;
+
+  if (results.length === 0) {
+    return log_invalid(msg,
+      `No gyms found matching \`[${handle}]\`.`
+    );
+  }
+  if (results.length > 1) {
+    return log_invalid(msg,
+      `Ambiguous gym identifier \`[${handle}]\`.`
+    );
+  }
+  let [raid] = results;
+  return log_invalid(msg,
+    `Raid already reported for ${gym_name(raid)}.`
   );
 }
 
@@ -1910,7 +1912,7 @@ function handle_boss(msg, handle, boss, timer) {
   return handle_report(msg, handle, raid_tiers[boss], boss, timer);
 }
 
-function handle_update(msg, handle, data) {
+async function handle_update(msg, handle, data) {
   let data_lower = data.toLowerCase();
 
   let now = get_now();
@@ -1951,52 +1953,50 @@ function handle_update(msg, handle, data) {
     return log_invalid(msg, `Invalid update parameter \`${data}\`.`);
   }
 
-  conn.query(
+  let [result, err] = await moltresdb.query(
     'UPDATE raids INNER JOIN gyms ON raids.gym_id = gyms.id ' +
     '   SET ? ' +
     '   WHERE ' + where_one_gym(handle) +
     '     AND raids.despawn > ? ',
-    [assignment, now],
-
-    mutation_handler(msg, function (msg, result) {
-      return log_invalid(msg,
-        `No unique gym match found for \`[${handle}]\` with an active raid.`
-      );
-    }, function (msg, result) {
-      if ('tier' in assignment || 'despawn' in assignment) {
-        return send_raid_report_notif(msg, handle, 'updated');
-      }
-      return react_success(msg);
-    })
+    [assignment, now]
   );
+  if (err) return log_mysql_error(msg, err);
+
+  if (result.affectedRows === 0) {
+    return log_invalid(msg,
+      `No unique gym match found for \`[${handle}]\` with an active raid.`
+    );
+  }
+  if ('tier' in assignment || 'despawn' in assignment) {
+    return send_raid_report_notif(msg, handle, 'updated');
+  }
+  return react_success(msg);
 }
 
-function handle_scrub(msg, handle) {
-  conn.query(
+async function handle_scrub(msg, handle) {
+  let [results, err] = await moltresdb.query(
     'SELECT * FROM ' +
     '   gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
-    '   WHERE ' + where_one_gym(handle),
+    '   WHERE ' + where_one_gym(handle)
+  );
+  if (err) return log_mysql_error(msg, err);
 
-    errwrap(msg, async function (msg, results) {
-      let found_one = await check_one_gym(msg, handle, results);
-      if (!found_one) return;
-      let [raid] = results;
+  let found_one = await check_one_gym(msg, handle, results);
+  if (!found_one) return;
+  let [raid] = results;
 
-      conn.query(
-        'DELETE FROM raids WHERE gym_id = ?',
-        [raid.gym_id],
+  [, err] = await moltresdb.query(
+    'DELETE FROM raids WHERE gym_id = ?',
+    [raid.gym_id]
+  );
+  if (err) return log_mysql_error(msg, err);
 
-        mutation_handler(msg, null, function (msg, result) {
-          let spotter = guild().members.get(raid.spotter);
-          if (!spotter) return;
+  let spotter = guild().members.get(raid.spotter);
+  if (!spotter) spotter = '[unknown user]';
 
-          return send_for_region(raid.region,
-            `${get_emoji('banned')} Raid reported by ${spotter} ` +
-            `at ${gym_name(raid)} was scrubbed.`
-          );
-        })
-      );
-    })
+  return send_for_region(raid.region,
+    `${get_emoji('banned')} Raid reported by ${spotter} ` +
+    `at ${gym_name(raid)} was scrubbed.`
   );
 }
 
@@ -2092,7 +2092,7 @@ function join_cache_set(handle, time, messages) {
   }
 }
 
-function handle_call(msg, handle, call_time, extras) {
+async function handle_call(msg, handle, call_time, extras) {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
@@ -2118,71 +2118,73 @@ function handle_call(msg, handle, call_time, extras) {
   let later = new Date(call_time.getTime());
   later.setMinutes(later.getMinutes() + boss_duration + 1);
 
-  conn.query(
+  let [result, err] = await moltresdb.query(
     'INSERT INTO calls (raid_id, caller, time) ' +
     '   SELECT raids.gym_id, ?, ? FROM gyms INNER JOIN raids ' +
     '     ON gyms.id = raids.gym_id ' +
     '   WHERE ' + where_one_gym(handle) +
     '     AND raids.despawn > ? ' +
     '     AND raids.despawn <= ? ',
-    [msg.author.id, call_time, call_time, later],
-
-    mutation_handler(msg, function (msg, result) {
-      return log_invalid(msg,
-        `Could not find a unique raid for \`[${handle}]\` with call time ` +
-        `\`${time}\` after hatch and before despawn (or this time has ` +
-        `already been called).`
-      );
-    }, function (msg, result) {
-      let call_id = result.insertId;
-
-      conn.query(
-        'INSERT INTO rsvps SET ?',
-        { call_id: call_id,
-          user_id: msg.author.id,
-          extras: extras,
-          maybe: false },
-        errwrap(msg)
-      );
-
-      // Grab the raid information just for reply purposes.
-      conn.query(
-        'SELECT * FROM gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
-        '   WHERE ' + where_one_gym(handle),
-
-        errwrap(msg, async function (msg, results) {
-          let found_one = await check_one_gym(msg, handle, results);
-          if (!found_one) return;
-          let [raid] = results;
-
-          let region_str = function() {
-            let role_id = config.regions[raid.region];
-            if (!role_id) return raid.region;
-
-            let role = msg.guild.roles.get(role_id);
-            if (!role) return raid.region;
-
-            return raid.silent ? role.name : role.toString();
-          }();
-
-          let output = get_emoji('clock230') + ' ' +
-            `${region_str} **${fmt_tier_boss(raid)}** raid ` +
-            `at ${gym_name(raid)} ` +
-            `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
-            `\n\nTo join this raid time, enter ` +
-            `\`$join ${raid.handle} ${time}\`.`;
-
-          return Promise.all([
-            send_for_region(raid.region, output),
-            set_raid_alarm(msg, raid.handle, call_time),
-          ]);
-        })
-      );
-    })
+    [msg.author.id, call_time, call_time, later]
   );
+  if (err) return log_mysql_error(msg, err);
+
+  if (result.affectedRows === 0) {
+    return log_invalid(msg,
+      `Could not find a unique raid for \`[${handle}]\` with call time ` +
+      `\`${time}\` after hatch and before despawn (or this time has ` +
+      `already been called).`
+    );
+  }
+
+  let call_id = result.insertId;
+
+  [result, err] = await moltresdb.query(
+    'INSERT INTO rsvps SET ?',
+    { call_id: call_id,
+      user_id: msg.author.id,
+      extras: extras,
+      maybe: false }
+  );
+  if (err) return log_mysql_error(msg, err);
+
+  let results;
+
+  // Grab the raid information just for reply purposes.
+  [results, err] = await moltresdb.query(
+    'SELECT * FROM gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
+    '   WHERE ' + where_one_gym(handle)
+  );
+  if (err) return log_mysql_error(msg, err);
+
+  let found_one = await check_one_gym(msg, handle, results);
+  if (!found_one) return;
+  let [raid] = results;
+
+  let region_str = function() {
+    let role_id = config.regions[raid.region];
+    if (!role_id) return raid.region;
+
+    let role = msg.guild.roles.get(role_id);
+    if (!role) return raid.region;
+
+    return raid.silent ? role.name : role.toString();
+  }();
+
+  let output = get_emoji('clock230') + ' ' +
+    `${region_str} **${fmt_tier_boss(raid)}** raid ` +
+    `at ${gym_name(raid)} ` +
+    `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
+    `\n\nTo join this raid time, enter ` +
+    `\`$join ${raid.handle} ${time}\`.`;
+
+  return Promise.all([
+    send_for_region(raid.region, output),
+    set_raid_alarm(msg, raid.handle, call_time),
+  ]);
 }
 
-function handle_cancel(msg, handle, call_time) {
+async function handle_cancel(msg, handle, call_time) {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
@@ -2196,38 +2198,39 @@ function handle_cancel(msg, handle, call_time) {
     );
   }
 
-  get_all_raiders(msg, handle, call_time, function (msg, row, raiders) {
-    if (row === null) return fail(msg);
-    let {gyms, raids, calls} = row;
+  let [row, raiders] = await get_all_raiders(msg, handle, call_time);
+  if (row === null) return fail(msg);
 
-    conn.query(
-      'DELETE calls FROM calls ' +
-      '   INNER JOIN raids ON calls.raid_id = raids.gym_id ' +
-      '   INNER JOIN gyms ON raids.gym_id = gyms.id ' +
-      'WHERE ' + where_one_gym(handle) +
-      '  AND ' + where_call_time(call_time, true) +
-      '  AND calls.caller = ? ',
-      [msg.author.id],
+  let {gyms, raids, calls} = row;
 
-      mutation_handler(msg, fail, function (msg, result) {
-        raiders = raiders
-          .map(r => r.member.user)
-          .filter(user => user.id != msg.author.id);
+  let [result, err] = await moltresdb.query(
+    'DELETE calls FROM calls ' +
+    '   INNER JOIN raids ON calls.raid_id = raids.gym_id ' +
+    '   INNER JOIN gyms ON raids.gym_id = gyms.id ' +
+    'WHERE ' + where_one_gym(handle) +
+    '  AND ' + where_call_time(call_time, true) +
+    '  AND calls.caller = ? ',
+    [msg.author.id]
+  );
+  if (err) return log_mysql_error(msg, err);
 
-        let output = get_emoji('no_entry_sign') + ' ' +
-          `Raid at ${time_str(calls.time)} for ${gym_name(gyms)} ` +
-          `was cancelled by ${msg.author}.  ${gyaoo}`;
+  if (result.affectedRows === 0) return fail(msg);
 
-        if (raiders.length !== 0) {
-          output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
-        }
-        return send_for_region(gyms.region, output);
-      })
-    );
-  });
+  raiders = raiders
+    .map(r => r.member.user)
+    .filter(user => user.id != msg.author.id);
+
+  let output = get_emoji('no_entry_sign') + ' ' +
+    `Raid at ${time_str(calls.time)} for ${gym_name(gyms)} ` +
+    `was cancelled by ${msg.author}.  ${gyaoo}`;
+
+  if (raiders.length !== 0) {
+    output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
+  }
+  return send_for_region(gyms.region, output);
 }
 
-function handle_change_time(msg, handle, current, to, desired) {
+async function handle_change_time(msg, handle, current, to, desired) {
   if (current instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${current.arg}\`.`);
   }
@@ -2247,7 +2250,7 @@ function handle_change_time(msg, handle, current, to, desired) {
     time: desired,
   };
 
-  conn.query(
+  let [result, err] = await moltresdb.query(
     'UPDATE calls ' +
     '   INNER JOIN raids ON calls.raid_id = raids.gym_id ' +
     '   INNER JOIN gyms ON raids.gym_id = gyms.id ' +
@@ -2256,46 +2259,47 @@ function handle_change_time(msg, handle, current, to, desired) {
     '   AND raids.despawn > ? ' +
     '   AND raids.despawn <= ? ' +
     '   AND calls.time = ? ',
-    [assignment, desired, later, current],
-
-    mutation_handler(msg, function (msg, result) {
-      return log_invalid(msg,
-        `No raid at \`${time_str(current)}\` found for \`[${handle}]\` ` +
-        `(or \`${time_str(desired)}\` is not a valid raid time).`
-      );
-    }, async function (msg, result) {
-      let [row, raiders] = await get_all_raiders(msg, handle, desired);
-
-      // No raiders is weird, but it could happen if everyone unjoins and
-      // someone decides to change the raid time for no meaningful reason.
-      if (row === null || raiders.length === 0) return;
-      let handle = row.gyms.handle;
-
-      // Move the join message cache entry.
-      join_cache_set(handle, desired, join_cache_get(handle, current));
-      join_cache_set(handle, current, null);
-
-      raiders = raiders
-        .map(r => r.member.user)
-        .filter(user => user.id != msg.author.id);
-
-      let output =
-        `Raid time changed for ${gym_name(row.gyms)} ` +
-        `from ${time_str(current)} to ${time_str(desired)} ` +
-        `by ${msg.author}.  ${gyaoo}`;
-
-      if (raiders.length !== 0) {
-        output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
-      }
-      return Promise.all([
-        send_for_region(row.gyms.region, output),
-        set_raid_alarm(msg, handle, desired),
-      ]);
-    });
+    [assignment, desired, later, current]
   );
+  if (err) return log_mysql_error(msg, err);
+
+  if (result.affectedRows === 0) {
+    return log_invalid(msg,
+      `No raid at \`${time_str(current)}\` found for \`[${handle}]\` ` +
+      `(or \`${time_str(desired)}\` is not a valid raid time).`
+    );
+  }
+
+  let [row, raiders] = await get_all_raiders(msg, handle, desired);
+
+  // No raiders is weird, but it could happen if everyone unjoins and
+  // someone decides to change the raid time for no meaningful reason.
+  if (row === null || raiders.length === 0) return;
+  handle = row.gyms.handle;
+
+  // Move the join message cache entry.
+  join_cache_set(handle, desired, join_cache_get(handle, current));
+  join_cache_set(handle, current, null);
+
+  raiders = raiders
+    .map(r => r.member.user)
+    .filter(user => user.id != msg.author.id);
+
+  let output =
+    `Raid time changed for ${gym_name(row.gyms)} ` +
+    `from ${time_str(current)} to ${time_str(desired)} ` +
+    `by ${msg.author}.  ${gyaoo}`;
+
+  if (raiders.length !== 0) {
+    output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
+  }
+  return Promise.all([
+    send_for_region(row.gyms.region, output),
+    set_raid_alarm(msg, handle, desired),
+  ]);
 }
 
-function handle_join(msg, handle, call_time, extras) {
+async function handle_join(msg, handle, call_time, extras) {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
@@ -2305,7 +2309,7 @@ function handle_join(msg, handle, call_time, extras) {
 
   extras = extras || 0;
 
-  conn.query(
+  let [result, err] = await moltresdb.query(
     'INSERT INTO rsvps (call_id, user_id, extras, maybe) ' +
     '   SELECT calls.id, ?, ?, ? ' +
     '     FROM gyms ' +
@@ -2313,89 +2317,90 @@ function handle_join(msg, handle, call_time, extras) {
     '       INNER JOIN calls ON raids.gym_id = calls.raid_id ' +
     '   WHERE ' + where_one_gym(handle) +
     '     AND ' + where_call_time(call_time),
-    [msg.author.id, extras, false],
-
-    mutation_handler(msg, function (msg, result) {
-      return log_invalid(msg,
-        `Could not find a single raid time to join for \`[${handle}]\`` +
-        (!!call_time
-          ? ` with called time \`${time_str(call_time)}\`.`
-          : '.  Either none or multiple have been called.')
-      );
-    }, async function (msg, result) {
-      let [row, raiders] = await get_all_raiders(msg, handle, call_time);
-
-      // The call time might have changed, or everyone may have unjoined.
-      if (row === null || raiders.length === 0) return;
-
-      let {gyms, raids, calls} = row;
-      let handle = gyms.handle;
-
-      raiders = raiders.filter(r => r.member.id != msg.author.id);
-
-      let joining_str = extras > 0 ? `joining with +${extras}` : 'joining';
-
-      let output = get_emoji('team') + '  ' +
-        `${msg.author} is ${joining_str} at ${time_str(calls.time)} ` +
-        `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
-
-      if (raiders.length !== 0) {
-        let names = raiders.map(
-          r => r.member.nickname || r.member.user.username
-        );
-        output += ` (with ${names.join(', ')}).`;
-      } else {
-        output += '.';
-      }
-
-      output += '\n\nTo join this raid time, enter ';
-      if (!!call_time) {
-        output += `\`$join ${handle} ${time_str_short(calls.time)}\`.`;
-      } else {
-        output += `\`$join ${handle}\`.`;
-      }
-
-      let join_msgs = await send_for_region(gyms.region, output);
-
-      // Clear any existing join message for this raid.
-      let replace_prev_msg = function() {
-        let prev = join_cache_get(handle, calls.time);
-        join_cache_set(handle, calls.time, join_msgs);
-        if (prev) {
-          return Promise.all(prev.map(join => try_delete(join)));
-        }
-      };
-
-      // Delete the $join request, delete any previous join message, and
-      // cache this one for potential later deletion.
-      return Promise.all([
-        replace_prev_msg(),
-        try_delete(msg, 3000),
-      ]);
-    });
+    [msg.author.id, extras, false]
   );
+  if (err) return log_mysql_error(msg, err);
+
+  if (result.affectedRows === 0) {
+    return log_invalid(msg,
+      `Could not find a single raid time to join for \`[${handle}]\`` +
+      (!!call_time
+        ? ` with called time \`${time_str(call_time)}\`.`
+        : '.  Either none or multiple have been called.')
+    );
+  }
+
+  let [row, raiders] = await get_all_raiders(msg, handle, call_time);
+
+  // The call time might have changed, or everyone may have unjoined.
+  if (row === null || raiders.length === 0) return;
+
+  let {gyms, raids, calls} = row;
+  handle = gyms.handle;
+
+  raiders = raiders.filter(r => r.member.id != msg.author.id);
+
+  let joining_str = extras > 0 ? `joining with +${extras}` : 'joining';
+
+  let output = get_emoji('team') + '  ' +
+    `${msg.author} is ${joining_str} at ${time_str(calls.time)} ` +
+    `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
+
+  if (raiders.length !== 0) {
+    let names = raiders.map(
+      r => r.member.nickname || r.member.user.username
+    );
+    output += ` (with ${names.join(', ')}).`;
+  } else {
+    output += '.';
+  }
+
+  output += '\n\nTo join this raid time, enter ';
+  if (!!call_time) {
+    output += `\`$join ${handle} ${time_str_short(calls.time)}\`.`;
+  } else {
+    output += `\`$join ${handle}\`.`;
+  }
+
+  let join_msgs = await send_for_region(gyms.region, output);
+
+  // Clear any existing join message for this raid.
+  let replace_prev_msg = function() {
+    let prev = join_cache_get(handle, calls.time);
+    join_cache_set(handle, calls.time, join_msgs);
+    if (prev) {
+      return Promise.all(prev.map(join => try_delete(join)));
+    }
+  };
+
+  // Delete the $join request, delete any previous join message, and
+  // cache this one for potential later deletion.
+  return Promise.all([
+    replace_prev_msg(),
+    try_delete(msg, 3000),
+  ]);
 }
 
-function handle_unjoin(msg, handle, call_time) {
+async function handle_unjoin(msg, handle, call_time) {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
 
-  conn.query(
+  let [result, err] = await moltresdb.query(
     'DELETE rsvps FROM ' + full_join_table +
     '   WHERE ' + where_one_gym(handle) +
     '     AND ' + where_call_time(call_time) +
     '     AND rsvps.user_id = ? ',
-    [msg.author.id],
-
-    mutation_handler(msg, function (msg, result) {
-      return log_invalid(msg,
-        `Couldn't find a unique raid for \`[${handle}]\` that you joined.`
-      );
-    }, function (msg, result) {
-      return react_success(msg, 'cry');
-    })
+    [msg.author.id]
   );
+  if (err) return log_mysql_error(msg, err);
+
+  if (result.affectedRows === 0) {
+    return log_invalid(msg,
+      `Couldn't find a unique raid for \`[${handle}]\` that you joined.`
+    );
+  }
+  return react_success(msg, 'cry');
 }
 
 ///////////////////////////////////////////////////////////////////////////////
