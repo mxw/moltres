@@ -2017,6 +2017,10 @@ async function handle_update(msg, handle, data) {
       `No unique gym match found for \`[${handle}]\` with an active raid.`
     );
   }
+
+  if (result.changedRows === 0) {
+    return send_quiet(msg.channel, 'Your update made no changes.');
+  }
   if ('tier' in assignment || 'despawn' in assignment) {
     return send_raid_report_notif(msg, handle, 'updated');
   }
