@@ -1966,29 +1966,26 @@ async function handle_report(msg, handle, tier, boss, timer, mods) {
   );
   if (err) return log_mysql_error(msg, err);
 
-  if (result.affectedRows !== 0) {
-    return send_raid_report_notif(msg, handle, 'reported', mods & Mod.ANON);
+  if (result.affectedRows === 0) {
+    // Re-query for error handling.
+    let [results, err] = await moltresdb.query(
+      'SELECT * FROM gyms ' +
+      '   WHERE gyms.handle LIKE ? OR gyms.name LIKE ?',
+      Array(2).fill(`%${handle}%`)
+    );
+    if (err) return log_mysql_error(msg, err);
+
+    let gyms = uniq_gyms_for_error(results, handle);
+
+    let pass = await check_gym_match(msg, gyms, handle);
+    if (!pass) return;
+
+    let [gym] = gyms;
+    return log_invalid(msg,
+      `Raid already reported for ${gym_name(gym)}.`
+    );
   }
-
-  let results;
-
-  // Re-query for error handling.
-  [results, err] = await moltresdb.query(
-    'SELECT * FROM gyms ' +
-    '   WHERE gyms.handle LIKE ? OR gyms.name LIKE ?',
-    Array(2).fill(`%${handle}%`)
-  );
-  if (err) return log_mysql_error(msg, err);
-
-  let gyms = uniq_gyms_for_error(results, handle);
-
-  let pass = await check_gym_match(msg, gyms, handle);
-  if (!pass) return;
-
-  let [gym] = gyms;
-  return log_invalid(msg,
-    `Raid already reported for ${gym_name(gym)}.`
-  );
+  return send_raid_report_notif(msg, handle, 'reported', mods & Mod.ANON);
 }
 
 function handle_egg(msg, handle, tier, timer, mods) {
