@@ -558,6 +558,7 @@ const req_aliases = {
   'regions':      'ls-regions',
   'search':       'search-gym',
   'search-gyms':  'search-gym',
+  's':            'search-gym',
   'call-time':    'call',
   'uncall':       'cancel',
   'j':            'join',
