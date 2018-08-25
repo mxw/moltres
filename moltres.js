@@ -939,26 +939,19 @@ async function check_gym_match(msg, gyms, handle) {
 // MySQL utilities.
 
 /*
- * MySQL handler which logs any error, or otherwise delegates to a callback.
+ * NB: The `result' for a mutation has the following structure:
+ *
+ * OkPacket {
+ *   fieldCount: 0,
+ *   affectedRows: 1,
+ *   insertId: 23,
+ *   serverStatus: 34,
+ *   warningCount: 0,
+ *   message: '&Records: 1  Duplicates: 0  Warnings: 0',
+ *   protocol41: true,
+ *   changedRows: 0,
+ * }
  */
-function errwrap(msg, fn = null) {
-  return async function (err, ...rest) {
-    if (err) {
-      console.error(err);
-      return log_error(msg,
-        `MySQL error: ${err.code} (${err.errno}): ${err.sqlMessage})`
-      );
-    }
-    if (fn !== null) {
-      try {
-        msg = await refresh(msg);
-        return await fn(msg, ...rest);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  };
-}
 
 /*
  * Log a MySQL error.
@@ -968,36 +961,6 @@ function log_mysql_error(msg, err) {
   return log_error(msg,
     `MySQL error: ${err.code} (${err.errno}): ${err.sqlMessage})`
   );
-}
-
-/*
- * Wrapper around common handling for mutation requests.
- */
-function mutation_handler(msg, failure = null, success = null) {
-  return errwrap(msg, function (msg, result) {
-    /*
-     * The `result' for a mutation has the following structure:
-     *
-     * OkPacket {
-     *   fieldCount: 0,
-     *   affectedRows: 1,
-     *   insertId: 23,
-     *   serverStatus: 34,
-     *   warningCount: 0,
-     *   message: '&Records: 1  Duplicates: 0  Warnings: 0',
-     *   protocol41: true,
-     *   changedRows: 0,
-     * }
-     */
-    if (result.affectedRows === 0) {
-      if (failure !== null) return failure(msg, result);
-    } else {
-      if (success !== null) {
-        return success(msg, result);
-      }
-      return react_success(msg);
-    }
-  })
 }
 
 ///////////////////////////////////////////////////////////////////////////////
