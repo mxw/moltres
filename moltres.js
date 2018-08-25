@@ -1705,8 +1705,12 @@ async function send_raid_report_notif(msg, handle, verbed, anon = false) {
   if (!found_one) return;
   let [raid] = results;
 
-  let output = raid_report_notif(raid) + ` (${verbed} ` +
-               (from_dm(msg) ? 'via DM' : `by ${msg.author}`) + ').';
+  let output =
+    raid_report_notif(raid) + ` (${verbed} ` +
+    (anon
+      ? 'anonymously'
+      : `by ${is_member(guild(), msg.author) ? msg.author : msg.author.tag}`
+    ) + ').';
 
   await send_for_region(raid.region, output);
 
