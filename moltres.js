@@ -815,6 +815,9 @@ function total_mentions(msg) {
          msg.mentions.everyone;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Error logging.
+
 /*
  * Log base function.
  */
@@ -879,6 +882,57 @@ ${meta.detail.join(' ')}
     result += `\n\t\`\$${req} ${ex}\`: ${meta.examples[ex]}`;
   }
   return result;
+}
+
+/*
+ * Extract an array of unique gym table entries from an error-messaging query.
+ *
+ * The `rows' can either be nested or not, and we assume that where_one_gym
+ * uniquification has not already been performed.
+ */
+function uniq_gyms_for_error(rows, handle) {
+  let [first = {}] = rows;
+
+  if ('gyms' in first) {
+    rows = rows.map(row => row.gyms);
+  }
+
+  let found_handles = new Set();
+
+  rows = rows.filter(gym => {
+    if (found_handles.has(gym.handle)) return false;
+    found_handles.add(gym.handle);
+    return true;
+  });
+
+  // Account for our preference for exact handle matches.
+  let maybe_unique = rows.filter(gym => gym.handle === handle);
+  if (maybe_unique.length === 1) rows = maybe_unique;
+
+  return rows;
+}
+
+/*
+ * Return false and handle error responses if the gym query result `gyms'
+ * doesn't uniquely match `handle'.
+ *
+ * Otherwise, return true.
+ */
+async function check_gym_match(msg, gyms, handle) {
+  if (gyms.length === 0) {
+    await log_invalid(msg,
+      `No gyms found matching \`[${handle}]\`.`
+    );
+    return false;
+  }
+  if (gyms.length > 1) {
+    await log_invalid(msg,
+      `Ambiguous gym identifier \`[${handle}]\`.\n` +
+      `Gyms matching \`${handle}\`:\n\n` + list_gyms(gyms)
+    );
+    return false;
+  }
+  return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1926,23 +1980,14 @@ async function handle_report(msg, handle, tier, boss, timer, mods) {
   );
   if (err) return log_mysql_error(msg, err);
 
-  // Account for our preference for exact handle matches.
-  let maybe_unique = results.filter(raid => raid.handle === handle);
-  if (maybe_unique.length === 1) results = maybe_unique;
+  let gyms = uniq_gyms_for_error(results, handle);
 
-  if (results.length === 0) {
-    return log_invalid(msg,
-      `No gyms found matching \`[${handle}]\`.`
-    );
-  }
-  if (results.length > 1) {
-    return log_invalid(msg,
-      `Ambiguous gym identifier \`[${handle}]\`.`
-    );
-  }
-  let [raid] = results;
+  let pass = await check_gym_match(msg, gyms, handle);
+  if (!pass) return;
+
+  let [gym] = gyms;
   return log_invalid(msg,
-    `Raid already reported for ${gym_name(raid)}.`
+    `Raid already reported for ${gym_name(gym)}.`
   );
 }
 
@@ -2364,15 +2409,69 @@ async function handle_join(msg, handle, call_time, extras) {
     '     AND ' + where_call_time(call_time),
     [msg.author.id, extras, false]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return log_invalid(msg,
+        `You have already joined the raid call for \`[${handle}]\`` +
+        (!!call_time
+          ? ` at \`${time_str(call_time)}\`.`
+          : '.')
+      );
+    }
+    return log_mysql_error(msg, err);
+  }
 
   if (result.affectedRows === 0) {
-    return log_invalid(msg,
-      `Could not find a single raid time to join for \`[${handle}]\`` +
-      (!!call_time
-        ? ` with called time \`${time_str(call_time)}\`.`
-        : '.  Either none or multiple have been called.')
-    );
+    // Re-query for error handling.
+    let [results, err] = await moltresdb.query({
+      sql:
+        'SELECT * FROM gyms ' +
+        '   LEFT JOIN raids ON ( ' +
+        '         gyms.id = raids.gym_id ' +
+        '     AND raids.despawn > ? ' +
+        '   ) ' +
+        '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
+        'WHERE gyms.handle LIKE ? OR gyms.name LIKE ? ',
+      values: [get_now()].concat(Array(2).fill(`%${handle}%`)),
+      nestTables: true,
+    });
+    if (err) return log_mysql_error(msg, err);
+
+    let gyms = uniq_gyms_for_error(results, handle);
+
+    let pass = await check_gym_match(msg, gyms, handle);
+    if (!pass) return;
+
+    let [gym] = gyms;
+
+    let call_rows = results.filter(row => row.gyms.handle === gym.handle);
+    let [first] = call_rows;
+
+    if (first.raids.gym_id === null) {
+      return log_invalid(msg,
+        `No raid has been reported at ${gym_name(gym)}.`
+      );
+    }
+    if (first.calls.raid_id === null) {
+      return log_invalid(msg,
+        `No times have been called for the raid at ${gym_name(gym)}.`
+      );
+    }
+
+    if (!call_time && call_rows.length > 1) {
+      return log_invalid(msg,
+        `Multiple times have been called for the raid at ${gym_name(gym)}.` +
+        `  Please include the time in your post (e.g., ` +
+        `\`$join ${handle} ${time_str_short(first.calls.time)})\`.`
+      );
+    } else if (!!call_time &&
+               !call_rows.find(row => row.calls.time === call_time)) {
+      return log_invalid(msg,
+        `No raid at ${gym_name(gym)} has been called for ` +
+        `${time_str(call_time)}.`
+      );
+    }
+    return log_invalid(msg, 'An unknown error occurred.');
   }
 
   let [row, raiders] = await get_all_raiders(msg, handle, call_time);
