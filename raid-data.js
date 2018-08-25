@@ -85,7 +85,6 @@ module.exports = {
     ursaring: 4,
     walrein: 4,
 
-    regirock: 5,
     'ho-oh': 5,
   },
   boss_aliases: {
