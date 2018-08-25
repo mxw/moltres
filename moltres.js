@@ -848,10 +848,15 @@ function log_error(msg, str, reacc = null) {
 async function log_invalid(msg, str, keep = false) {
   let orig_str = str;
 
+  // Truncate long error messages types.
   if (str.startsWith('**Usage**')) {
-    // Truncate usage strings.
     str = 'Usage: [...]';
   }
+  let pos = str.indexOf('\nGyms matching');
+  if (pos !== -1) {
+    str = str.slice(0, pos);
+  }
+
   await Promise.all([
     log_impl(msg, '_Error:_  ' + str, null),
     dm_quiet(msg.author, orig_str),
