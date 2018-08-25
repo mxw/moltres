@@ -91,6 +91,20 @@ const Access = {
   ALL: (1 << 5) - 1,
 };
 
+/*
+ * Request modifiers.
+ */
+const Mod = {
+  NONE: 0,
+  FORCE: 1 << 0,
+  ANON: 1 << 1,
+};
+
+const modifier_map = {
+  '!': Mod.FORCE,
+  '?': Mod.ANON,
+};
+
 const Arg = utils.Arg;
 const InvalidArg = utils.InvalidArg;
 
@@ -288,11 +302,16 @@ const reqs = {
     access: Access.REGION_DM,
     usage: '<gym-handle-or-name> <tier> <time-til-hatch MM:SS>',
     args: [Arg.VARIADIC, Arg.TIER, Arg.TIMER],
+    mod_mask: Mod.FORCE | Mod.ANON,
     desc: 'Report a raid egg.',
     detail: [
       'The tier can be any number 1–5 or things like `t3` or `T4`.  The time',
-      'should be the current _**countdown timer**_, not a time of day. See',
-      '`$help gym` for details on gym handles.',
+      'should be the current _**countdown timer**_, not a time of day.  See',
+      '`$help gym` for details on gym handles.\n\n`$egg` also accepts two',
+      'modifiers:\n\t`$egg!` allows you to override an existing raid report',
+      '(e.g., if it\'s incorrect).\n\t`$egg?` prevents your username from',
+      'being included in raid report messages.\n\nThe two may be used in',
+      'conjunction.',
     ],
     examples: {
       'galaxy-sphere 5 3:35':
@@ -306,13 +325,17 @@ const reqs = {
     access: Access.REGION_DM,
     usage: '<gym-handle-or-name> <boss> <time-til-despawn MM:SS>',
     args: [Arg.VARIADIC, Arg.BOSS, Arg.TIMER],
+    mod_mask: Mod.FORCE | Mod.ANON,
     desc: 'Report a hatched raid boss.',
     detail: [
       'Raid bosses with multi-word names should be hyphenated; e.g.,',
       '`alolan-exeggutor`.  Some short names are supported, like `ttar` or',
-      '`tall-eggtree`.\n\nThe time should be the current _**countdown',
-      'timer**_, not a time of day.\n\nSee `$help gym` for details on gym',
-      'handles.',
+      '`tall-eggtree`.  The time should be the current _**countdown',
+      'timer**_, not a time of day.  See `$help gym` for details on gym',
+      'handles.\n\n`$boss` also accepts two modifiers:\n\t`$boss!` allows',
+      'you to override an existing raid report (e.g., if it\'s incorrect).\n\t',
+      '`$boss?` prevents your username from being included in raid report',
+      'messages.\n\nThe two may be used in conjunction.',
     ],
     examples: {
       'galaxy-sphere alolan-exeggutor 3:35':
@@ -1652,7 +1675,7 @@ function raid_report_notif(raid) {
 /*
  * Fetch and send a raid report notification for `msg' at `handle'.
  */
-async function send_raid_report_notif(msg, handle, verbed = 'reported') {
+async function send_raid_report_notif(msg, handle, verbed, anon = false) {
   let [results, err] = await moltresdb.query(
     'SELECT * FROM gyms ' +
     '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
@@ -1854,7 +1877,7 @@ async function handle_ls_raids(msg, tier, region) {
   }
 }
 
-async function handle_report(msg, handle, tier, boss, timer) {
+async function handle_report(msg, handle, tier, boss, timer, mods) {
   if (tier instanceof InvalidArg) {
     return log_invalid(msg, `Invalid raid tier \`${tier.arg}\`.`);
   }
@@ -1877,18 +1900,20 @@ async function handle_report(msg, handle, tier, boss, timer) {
     'REPLACE INTO raids (gym_id, tier, boss, despawn, spotter) ' +
     '   SELECT gyms.id, ?, ?, ?, ? FROM gyms ' +
     '   WHERE ' + where_one_gym(handle) +
-    '   AND ' +
-    '     NOT EXISTS ( ' +
-    '       SELECT * FROM raids ' +
-    '         WHERE gym_id = gyms.id ' +
-    '         AND despawn > ? ' +
-    '     ) ',
+    ((mods & Mod.FORCE) ? '' :
+      ' AND ' +
+      '   NOT EXISTS ( ' +
+      '     SELECT * FROM raids ' +
+      '       WHERE gym_id = gyms.id ' +
+      '       AND despawn > ? ' +
+      '   ) '
+    ),
     [tier, boss, despawn, msg.author.id, pop]
   );
   if (err) return log_mysql_error(msg, err);
 
   if (result.affectedRows !== 0) {
-    return send_raid_report_notif(msg, handle);
+    return send_raid_report_notif(msg, handle, 'reported', mods & Mod.ANON);
   }
 
   let results;
@@ -1921,15 +1946,15 @@ async function handle_report(msg, handle, tier, boss, timer) {
   );
 }
 
-function handle_egg(msg, handle, tier, timer) {
-  return handle_report(msg, handle, tier, null, timer);
+function handle_egg(msg, handle, tier, timer, mods) {
+  return handle_report(msg, handle, tier, null, timer, mods);
 }
 
-function handle_boss(msg, handle, boss, timer) {
+function handle_boss(msg, handle, boss, timer, mods) {
   if (boss === null) {
     return log_invalid(msg, `Unrecognized raid boss \`${boss}\`.`);
   }
-  return handle_report(msg, handle, raid_tiers[boss], boss, timer);
+  return handle_report(msg, handle, raid_tiers[boss], boss, timer, mods);
 }
 
 async function handle_update(msg, handle, data) {
@@ -2723,9 +2748,34 @@ function has_access(msg, request) {
 }
 
 /*
+ * Parse `req' and extract the request name and any modifiers.
+ *
+ * Returns a tuple of nulls if the request or its modifiers are invalid.
+ */
+function parse_req_str(req) {
+  let mods = Mod.NONE;
+
+  for (
+    let mod_char = req.charAt(req.length - 1);
+    mod_char in modifier_map;
+    req = req.slice(0, -1), mod_char = req.charAt(req.length - 1)
+  ) {
+    mods |= modifier_map[mod_char];
+  }
+
+  req = req_aliases[req] || req;
+  if (!(req in reqs)) return [null, mods];
+
+  let mod_mask = reqs[req].mod_mask || Mod.NONE;
+
+  if ((mods | mod_mask) !== mod_mask) return [req, null];
+  return [req, mods];
+}
+
+/*
  * Do the work of `request'.
  */
-async function handle_request(msg, request, argv) {
+async function handle_request(msg, request, mods, argv) {
   if (argv.length === 1 && argv[0] === 'help') {
     return handle_help(msg, [request]);
   }
@@ -2744,8 +2794,8 @@ async function handle_request(msg, request, argv) {
 
     case 'raid':      return handle_raid(msg, ...argv);
     case 'ls-raids':  return handle_ls_raids(msg, ...argv);
-    case 'egg':       return handle_egg(msg, ...argv);
-    case 'boss':      return handle_boss(msg, ...argv);
+    case 'egg':       return handle_egg(msg, ...argv, mods);
+    case 'boss':      return handle_boss(msg, ...argv, mods);
     case 'update':    return handle_update(msg, ...argv);
     case 'scrub':     return handle_scrub(msg, ...argv);
 
@@ -2770,7 +2820,7 @@ async function handle_request(msg, request, argv) {
  * Check whether the user who sent `msg' has the proper permissions to make
  * `request', and make it if so.
  */
-async function handle_request_with_check(msg, request, argv) {
+async function handle_request_with_check(msg, request, mods, argv) {
   let req_meta = reqs[request];
 
   if (!has_access(msg, request)) {
@@ -2782,7 +2832,7 @@ async function handle_request_with_check(msg, request, argv) {
 
   if (config.admin_ids.has(msg.author.id) ||
       req_meta.perms === Permission.NONE) {
-    return handle_request(msg, request, argv);
+    return handle_request(msg, request, mods, argv);
   }
 
   let [results, err] = await moltresdb.query(
@@ -2796,7 +2846,7 @@ async function handle_request_with_check(msg, request, argv) {
     (results.length === 0 && req_meta.perms === Permission.BLACKLIST);
 
   if (permitted) {
-    return handle_request(msg, request, argv);
+    return handle_request(msg, request, mods, argv);
   }
   return log_invalid(msg,
     `User ${msg.author.tag} does not have permissions for ${request} ` +
@@ -2811,28 +2861,34 @@ async function process_request(msg) {
   if (msg.content.charAt(0) !== '$') return;
   let args = msg.content.substr(1);
 
-  let req = null;
+  let req_str = null;
 
   let match = /\s+/.exec(args);
   if (match === null) {
-    req = args;
+    req_str = args;
     args = '';
   } else {
-    req = args.substr(0, match.index);
+    req_str = args.substr(0, match.index);
     args = args.substr(match.index + match[0].length);
   }
 
   let log = moltres.channels.get(config.log_id);
-  let output = `\`\$${req}\` ${args}
+  let output = `\`\$${req_str}\` ${args}
 _Time:_  ${get_now().toLocaleString('en-US', {timeZone: 'America/New_York'})}
 _User:_  ${msg.author.tag}
 _Channel:_  #${from_dm(msg) ? '[dm]' : msg.channel.name}`;
 
   await send_quiet(log, output);
 
-  req = req_aliases[req] || req;
-  if (!(req in reqs)) {
-    return log_invalid(msg, `Invalid request \`${req}\`.`, true);
+  let [req, mods] = parse_req_str(req_str);
+
+  if (req === null) {
+    return log_invalid(msg, `Invalid request \`${req_str}\`.`, true);
+  }
+  if (mods === null) {
+    return log_invalid(msg,
+      `Request string \`${req_str}\` has invalid modifiers.`
+    );
   }
 
   let argv = parse_args(args, reqs[req].args);
@@ -2840,7 +2896,7 @@ _Channel:_  #${from_dm(msg) ? '[dm]' : msg.channel.name}`;
     return log_invalid(msg, usage_string(req));
   }
 
-  return handle_request_with_check(msg, req, argv);
+  return handle_request_with_check(msg, req, mods, argv);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
