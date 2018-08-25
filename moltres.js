@@ -868,9 +868,9 @@ function usage_string(req) {
 
   let result = `**Usage**: \`\$${req} ${meta.usage}\`
 
-${meta.detail.join(' ')}
+(Arguments in \`<>\` are required; arguments in \`[]\` are optional.)
 
-(Arguments in \`<>\` are required; arguments in \`[]\` are optional.)`;
+${meta.detail.join(' ')}`;
 
   let aliases = Object.keys(req_aliases)
     .filter(k => req_aliases[k] === req)
