@@ -351,10 +351,13 @@ const reqs = {
     access: Access.REGION_DM,
     usage: '<gym-handle-or-name> <tier-or-boss-or-despawn-time-or-team>',
     args: [Arg.VARIADIC, Arg.STR],
+    mod_mask: Mod.ANON,
     desc: 'Modify an active raid listing.',
     detail: [
       'Note that unlike `$egg` and `$boss`, times are interpreted as',
-      '_despawn times_, not countdown timers.',
+      '_despawn times_, not countdown timers.\n\n`$update` accepts one',
+      'modifier:\n\t`$update?` prevents your username from being included',
+      'in raid update messages.',
     ],
     examples: {
       'galaxy 4': 'Change the raid tier at Galaxy to 4.',
@@ -1967,7 +1970,7 @@ function handle_boss(msg, handle, boss, timer, mods) {
   return handle_report(msg, handle, raid_tiers[boss], boss, timer, mods);
 }
 
-async function handle_update(msg, handle, data) {
+async function handle_update(msg, handle, data, mods) {
   let data_lower = data.toLowerCase();
 
   let now = get_now();
@@ -2027,7 +2030,7 @@ async function handle_update(msg, handle, data) {
     return send_quiet(msg.channel, 'Your update made no changes.');
   }
   if ('tier' in assignment || 'despawn' in assignment) {
-    return send_raid_report_notif(msg, handle, 'updated');
+    return send_raid_report_notif(msg, handle, 'updated', mods & Mod.ANON);
   }
   return react_success(msg);
 }
@@ -2864,7 +2867,7 @@ async function handle_request(msg, request, mods, argv) {
     case 'ls-raids':  return handle_ls_raids(msg, ...argv);
     case 'egg':       return handle_egg(msg, ...argv, mods);
     case 'boss':      return handle_boss(msg, ...argv, mods);
-    case 'update':    return handle_update(msg, ...argv);
+    case 'update':    return handle_update(msg, ...argv, mods);
     case 'scrub':     return handle_scrub(msg, ...argv);
 
     case 'call':      return handle_call(msg, ...argv);
