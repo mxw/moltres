@@ -799,10 +799,10 @@ function get_role(name) {
     role = guild().roles.find(r => r.name === capitalize(name));
     if (role) return role;
 
-    let matches = guild().roles.filterArray(
+    let matches = guild().roles.filter(
       role => role.name.toLowerCase().startsWith(name.toLowerCase())
     );
-    return matches.length === 1 ? matches[0] : null;
+    return matches.length === 1 ? matches.first() : null;
   };
 
   let role = impl(name);
@@ -2792,7 +2792,7 @@ function handle_expunge(msg, date) {
   let expected = date_str(date);
 
   let rooms = guild().channels
-    .filterArray(is_ex_room)
+    .filter(is_ex_room)
     .filter(room => {
       let info = ex_room_components(room.name);
       let found = `${info.month} ${info.day}`;
