@@ -947,6 +947,44 @@ async function check_gym_match(msg, gyms, handle) {
   return true;
 }
 
+/*
+ * Query the full left join table of gyms, active raids, and calls.
+ *
+ * We then ensure there is a single best gym match (else log an error), and
+ * return a tuple of the raid and call time info, along with the row for the
+ * gym itself.
+ */
+async function query_for_error(msg, handle, now = null) {
+  now = now || get_now();
+
+  let [results, err] = await moltresdb.query({
+    sql:
+      'SELECT * FROM gyms ' +
+      '   LEFT JOIN raids ON ( ' +
+      '         gyms.id = raids.gym_id ' +
+      '     AND raids.despawn > ? ' +
+      '   ) ' +
+      '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
+      'WHERE gyms.handle LIKE ? OR gyms.name LIKE ? ',
+    values: [now].concat(Array(2).fill(`%${handle}%`)),
+    nestTables: true,
+  });
+  if (err) {
+    await log_mysql_error(msg, err);
+    return [null, null];
+  }
+
+  let gyms = uniq_gyms_for_error(results, handle);
+
+  let pass = await check_gym_match(msg, gyms, handle);
+  if (!pass) return [null, null];
+
+  let [gym] = gyms;
+  let call_rows = results.filter(row => row.gyms.handle === gym.handle);
+
+  return [call_rows, gym];
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // MySQL utilities.
 
@@ -1946,20 +1984,9 @@ async function handle_report(msg, handle, tier, boss, timer, mods) {
   if (err) return log_mysql_error(msg, err);
 
   if (result.affectedRows === 0) {
-    // Re-query for error handling.
-    let [results, err] = await moltresdb.query(
-      'SELECT * FROM gyms ' +
-      '   WHERE gyms.handle LIKE ? OR gyms.name LIKE ?',
-      Array(2).fill(`%${handle}%`)
-    );
-    if (err) return log_mysql_error(msg, err);
+    let [call_rows, gym] = await query_for_error(msg, handle);
+    if (!gym) return;
 
-    let gyms = uniq_gyms_for_error(results, handle);
-
-    let pass = await check_gym_match(msg, gyms, handle);
-    if (!pass) return;
-
-    let [gym] = gyms;
     return log_invalid(msg,
       `Raid already reported for ${gym_name(gym)}.`
     );
@@ -2029,9 +2056,16 @@ async function handle_update(msg, handle, data, mods) {
   if (err) return log_mysql_error(msg, err);
 
   if (result.affectedRows === 0) {
-    return log_invalid(msg,
-      `No unique gym match found for \`[${handle}]\` with an active raid.`
-    );
+    let [call_rows, gym] = await query_for_error(msg, handle);
+    if (!gym) return;
+
+    let [{raids}] = call_rows;
+    if (raids.gym_id === null) {
+      return log_invalid(msg,
+        `No raid has been reported at ${gym_name(gym)}.`
+      );
+    }
+    return log_invalid(msg, 'An unknown error occurred.');
   }
 
   if (result.changedRows === 0) {
@@ -2402,29 +2436,9 @@ async function handle_join(msg, handle, call_time, extras) {
   }
 
   if (result.affectedRows === 0) {
-    // Re-query for error handling.
-    let [results, err] = await moltresdb.query({
-      sql:
-        'SELECT * FROM gyms ' +
-        '   LEFT JOIN raids ON ( ' +
-        '         gyms.id = raids.gym_id ' +
-        '     AND raids.despawn > ? ' +
-        '   ) ' +
-        '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
-        'WHERE gyms.handle LIKE ? OR gyms.name LIKE ? ',
-      values: [get_now()].concat(Array(2).fill(`%${handle}%`)),
-      nestTables: true,
-    });
-    if (err) return log_mysql_error(msg, err);
+    let [call_rows, gym] = await query_for_error(msg, handle);
+    if (!gym) return;
 
-    let gyms = uniq_gyms_for_error(results, handle);
-
-    let pass = await check_gym_match(msg, gyms, handle);
-    if (!pass) return;
-
-    let [gym] = gyms;
-
-    let call_rows = results.filter(row => row.gyms.handle === gym.handle);
     let [first] = call_rows;
 
     if (first.raids.gym_id === null) {
