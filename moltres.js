@@ -985,6 +985,52 @@ async function query_for_error(msg, handle, now = null) {
   return [call_rows, gym];
 }
 
+/*
+ * Like query_for_error(), but checks call times.
+ */
+async function query_for_error_call(msg, handle, call_time, req, now = null) {
+  let [call_rows, gym] = await query_for_error(msg, handle);
+  if (!gym) return [null, null];
+
+  let fail = async function(...args) {
+    await log_invalid(...args);
+    return [null, gym];
+  };
+
+  let [first] = call_rows;
+
+  if (first.raids.gym_id === null) {
+    return fail(msg,
+      `No raid has been reported at ${gym_name(gym)}.`
+    );
+  }
+  if (first.calls.raid_id === null) {
+    return fail(msg,
+      `No times have been called for the raid at ${gym_name(gym)}.`
+    );
+  }
+
+  if (!call_time && call_rows.length > 1) {
+    return fail(msg,
+      `Multiple times have been called for the raid at ${gym_name(gym)}.` +
+      `  Please include the time in your post (e.g., ` +
+      `\`$${req} ${handle} ${time_str_short(first.calls.time)} [...])\`.`
+    );
+  }
+
+  let call = !!call_time
+    ? call_rows.find(row => row.calls.time.getTime() === call_time.getTime())
+    : call_rows[0];
+
+  if (call_time && !call) {
+    return fail(msg,
+      `No raid at ${gym_name(gym)} has been called for ` +
+      `${time_str(call_time)}.`
+    );
+  }
+  return [call, gym];
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // MySQL utilities.
 
@@ -2231,14 +2277,38 @@ async function handle_call(msg, handle, call_time, extras) {
     '     AND raids.despawn <= ? ',
     [msg.author.id, call_time, call_time, later]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return log_invalid(msg,
+        `A raid has already been called for \`[${handle}]\` ` +
+        `at \`${time_str(call_time)}\`.`
+      );
+    }
+    return log_mysql_error(msg, err);
+  }
 
   if (result.affectedRows === 0) {
-    return log_invalid(msg,
-      `Could not find a unique raid for \`[${handle}]\` with call time ` +
-      `\`${time}\` after hatch and before despawn (or this time has ` +
-      `already been called).`
-    );
+    let [call_rows, gym] = await query_for_error(msg, handle);
+    if (!gym) return;
+
+    let [{raids}] = call_rows;
+    if (raids.gym_id === null) {
+      return log_invalid(msg,
+        `No raid has been reported at ${gym_name(gym)}.`
+      );
+    }
+    if (call_time >= raids.despawn) {
+      return log_invalid(msg,
+        `Cannot call a raid after despawn (${time_str(raids.despawn)}).`
+      );
+    }
+    if (later < raids.despawn) {
+      return log_invalid(msg,
+        `Cannot call a raid before hatch ` +
+        `(${time_str(hatch_from_despawn(raids.despawn))}).`
+      );
+    }
+    return log_invalid(msg, 'An unknown error occurred.');
   }
 
   let call_id = result.insertId;
@@ -2293,13 +2363,15 @@ async function handle_cancel(msg, handle, call_time) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
 
-  let fail = function(msg) {
-    return log_invalid(msg,
-      `Could not find a single raid time for \`[${handle}]\`` +
-      (!!call_time
-        ? ` with called time \`${time_str(call_time)}\`.`
-        : '.  Either none or multiple have been called.')
-    );
+  let fail = async function(msg) {
+    let [call_row, gym] =
+      await query_for_error_call(msg, handle, call_time, 'cancel');
+    if (!call_row) return;
+
+    if (call_row.calls.caller !== msg.author.id) {
+      return log_invalid(msg, 'Raids can only be cancelled by their caller.');
+    }
+    return log_invalid(msg, 'An unknown error occurred.');
   }
 
   let [row, raiders] = await get_all_raiders(msg, handle, call_time);
@@ -2428,7 +2500,7 @@ async function handle_join(msg, handle, call_time, extras) {
       return log_invalid(msg,
         `You have already joined the raid call for \`[${handle}]\`` +
         (!!call_time
-          ? ` at \`${time_str(call_time)}\`.`
+          ? ` at ${time_str(call_time)}.`
           : '.')
       );
     }
@@ -2436,35 +2508,10 @@ async function handle_join(msg, handle, call_time, extras) {
   }
 
   if (result.affectedRows === 0) {
-    let [call_rows, gym] = await query_for_error(msg, handle);
-    if (!gym) return;
+    let [call_row,] =
+      await query_for_error_call(msg, handle, call_time, 'join');
+    if (!call_row) return;
 
-    let [first] = call_rows;
-
-    if (first.raids.gym_id === null) {
-      return log_invalid(msg,
-        `No raid has been reported at ${gym_name(gym)}.`
-      );
-    }
-    if (first.calls.raid_id === null) {
-      return log_invalid(msg,
-        `No times have been called for the raid at ${gym_name(gym)}.`
-      );
-    }
-
-    if (!call_time && call_rows.length > 1) {
-      return log_invalid(msg,
-        `Multiple times have been called for the raid at ${gym_name(gym)}.` +
-        `  Please include the time in your post (e.g., ` +
-        `\`$join ${handle} ${time_str_short(first.calls.time)})\`.`
-      );
-    } else if (!!call_time &&
-               !call_rows.find(row => row.calls.time === call_time)) {
-      return log_invalid(msg,
-        `No raid at ${gym_name(gym)} has been called for ` +
-        `${time_str(call_time)}.`
-      );
-    }
     return log_invalid(msg, 'An unknown error occurred.');
   }
 
@@ -2534,8 +2581,15 @@ async function handle_unjoin(msg, handle, call_time) {
   if (err) return log_mysql_error(msg, err);
 
   if (result.affectedRows === 0) {
+    let [call_row, gym] =
+      await query_for_error_call(msg, handle, call_time, 'unjoin');
+    if (!call_row) return;
+
     return log_invalid(msg,
-      `Couldn't find a unique raid for \`[${handle}]\` that you joined.`
+      `You have not joined the raid call for ${gym_name(gym)}` +
+      (!!call_time
+        ? ` at ${time_str(call_time)}.`
+        : '.')
     );
   }
   return react_success(msg, 'cry');
