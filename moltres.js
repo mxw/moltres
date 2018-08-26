@@ -2444,6 +2444,25 @@ async function handle_change_time(msg, handle, current, to, desired) {
       `No raid at \`${time_str(current)}\` found for \`[${handle}]\` ` +
       `(or \`${time_str(desired)}\` is not a valid raid time).`
     );
+    let [call_row, gym] =
+      await query_for_error_call(msg, handle, current, 'change-time');
+    if (!call_row) return;
+
+    let {raids} = call_row;
+
+    if (desired >= raids.despawn) {
+      return log_invalid(msg,
+        `Cannot change a time to after despawn (${time_str(raids.despawn)}).`
+      );
+    }
+    if (later < raids.despawn) {
+      return log_invalid(msg,
+        `Cannot change a time to before hatch ` +
+        `(${time_str(hatch_from_despawn(raids.despawn))}).`
+      );
+    }
+
+    return log_invalid(msg, 'An unknown error occurred.');
   }
 
   let [row, raiders] = await get_all_raiders(msg, handle, desired);
