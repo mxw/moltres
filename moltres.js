@@ -120,10 +120,13 @@ const req_order = [
 ];
 
 const req_to_perm = {
-  egg:    'report',
-  boss:   'report',
-  update: 'report',
-  cancel: 'call',
+  'gym':        'gym',
+  'ls-gyms':    'gym',
+  'search-gym': 'gym',
+  'egg':    'report',
+  'boss':   'report',
+  'update': 'report',
+  'cancel':      'call',
   'change-time': 'call',
 };
 
