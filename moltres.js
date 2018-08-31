@@ -1523,11 +1523,16 @@ async function handle_set_perm(msg, user_tag, req) {
 }
 
 function handle_reload_config(msg) {
+  delete require.cache[require.resolve('./config.js')];
+  delete require.cache[require.resolve('./raid-data.js')];
+
   config = require('./config.js');
+
   raid_data = require('./raid-data.js');
   raid_tiers = raid_data.raid_tiers;
   boss_aliases = raid_data.boss_aliases;
   bosses_for_tier = compute_tier_boss_map();
+
   return react_success(msg);
 }
 
