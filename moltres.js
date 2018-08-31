@@ -1763,8 +1763,8 @@ function fmt_tier_boss(raid) {
   let boss = raid.boss !== null
     ? fmt(raid.boss)
     : (tier < bosses_for_tier.length &&
-       bosses_for_tier[tier].length === 1)
-        ? fmt(bosses_for_tier[tier][0])
+       raid_data.preferred[tier])
+        ? fmt(raid_data.preferred[tier])
         : 'unknown';
 
   return `T${tier} ${boss}`;

@@ -85,7 +85,22 @@ module.exports = {
     ursaring: 4,
     walrein: 4,
 
+    articuno: 5,
+    zapdos: 5,
+    moltres: 5,
+    raikou: 5,
+    entei: 5,
+    suicune: 5,
+    lugia: 5,
     'ho-oh': 5,
+    regirock: 5,
+    regice: 5,
+    registeel: 5,
+    latias: 5,
+    latios: 5,
+    kyogre: 5,
+    groudon: 5,
+    rayquaza: 5,
   },
   boss_aliases: {
     ttar: 'tyranitar',
@@ -95,4 +110,12 @@ module.exports = {
     bones: 'alolan-marowak',
     peanuts: 'alolan-marowak',
   },
+  preferred: [
+    null, // 0 (unused)
+    null, // 1
+    null, // 2
+    null, // 3
+    null, // 4
+    'regirock', // 5
+  ],
 };
