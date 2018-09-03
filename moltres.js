@@ -2881,14 +2881,17 @@ function handle_expunge(msg, date) {
   if (date instanceof InvalidArg) {
     return log_invalid(msg, `Invalid MM/DD date \`${date.arg}\`.`);
   }
-  let expected = date_str(date);
+  let expected_str = date_str(date);
+  let expected = {
+    month: expected_str.slice(0, expected_str.indexOf(' ')),
+    day: date.getDate(),
+  };
 
   let rooms = guild().channels
     .filter(is_ex_room)
     .filter(room => {
       let info = ex_room_components(room.name);
-      let found = `${info.month} ${info.day}`;
-      return expected === found;
+      return expected.month === info.month && expected.day === info.day;
     });
 
   return Promise.all(rooms.map(room => room.delete()));
