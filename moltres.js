@@ -159,16 +159,13 @@ const reqs = {
     examples: {
     },
   },
-  'reload-config': {
+  'raidday': {
     perms: Permission.ADMIN,
     access: Access.ALL,
-    usage: '',
-    args: [],
-    desc: 'Reload the Moltres config file.',
-    detail: [
-      'This resets channel mappings, raid boss tiers, etc.  It is only',
-      'available to Moltres admins.',
-    ],
+    usage: '<boss> <despawn>',
+    args: [Arg.BOSS, Arg.HOURMIN],
+    desc: 'Add a raid to every gym for a Raid Day.',
+    detail: [],
     examples: {
     },
   },
@@ -178,8 +175,19 @@ const reqs = {
     usage: '',
     args: null,
     desc: 'Flavor of the week testing command.',
+    detail: [],
+    examples: {
+    },
+  },
+  'reload-config': {
+    perms: Permission.ADMIN,
+    access: Access.ALL,
+    usage: '',
+    args: [],
+    desc: 'Reload the Moltres config file.',
     detail: [
-      'This request is only available to me.',
+      'This resets channel mappings, raid boss tiers, etc.  It is only',
+      'available to Moltres admins.',
     ],
     examples: {
     },
@@ -1536,7 +1544,22 @@ function handle_reload_config(msg) {
   return react_success(msg);
 }
 
-function handle_test(msg, args) {
+async function handle_raidday(msg, boss, despawn) {
+  if (boss instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid raid boss \`${boss.arg}\`.`);
+  }
+  if (despawn instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${despawn.arg}\`.`);
+  }
+
+  return moltresdb.query(
+    'REPLACE INTO raids (`gym_id`, `tier`, `boss`,  `despawn`, `spotter`) ' +
+    '   SELECT `id`, ?, ?, ?, ? FROM gyms',
+    [raid_tiers[boss], boss, despawn, msg.author.id]
+  );
+}
+
+async function handle_test(msg, args) {
   let tests = require('./tests.js');
 
   let argv_equals = function(l, r) {
@@ -2957,8 +2980,9 @@ async function handle_request(msg, request, mods, argv) {
   switch (request) {
     case 'help':      return handle_help(msg, ...argv);
     case 'set-perm':  return handle_set_perm(msg, ...argv);
-    case 'reload-config': return handle_reload_config(msg, ...argv);
+    case 'raidday':   return handle_raidday(msg, ...argv);
     case 'test':      return handle_test(msg, ...argv);
+    case 'reload-config': return handle_reload_config(msg, ...argv);
 
     case 'gym':       return handle_gym(msg, ...argv);
     case 'ls-gyms':   return handle_ls_gyms(msg, ...argv);
