@@ -112,7 +112,7 @@ const InvalidArg = utils.InvalidArg;
  * Order of display for $help.
  */
 const req_order = [
-  'help', 'set-perm', 'test', 'reload-config', null,
+  'help', 'set-perm', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
@@ -152,7 +152,7 @@ const reqs = {
     access: Access.REGION | Access.EX_ALL,
     usage: '<user> <request>',
     args: [Arg.STR, Arg.STR],
-    desc: 'Enable others to use more requests.',
+    desc: 'Enable others to use more (or fewer) requests.',
     detail: [
       'The user should be identified by tag.',
     ],
