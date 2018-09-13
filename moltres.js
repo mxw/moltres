@@ -1160,8 +1160,8 @@ function select_rsvps(handle, xtra_where = null, xtra_values = []) {
 ///////////////////////////////////////////////////////////////////////////////
 // Time utilities.
 
-const egg_duration = 60;
-const boss_duration = 45;
+const egg_duration = 15;
+const boss_duration = 90;
 
 /*
  * Return a Date for the current time.

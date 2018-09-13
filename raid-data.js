@@ -10,6 +10,7 @@ module.exports = {
     cyndaquil: 1,
     totodile: 1,
 
+    dratini: 1,
     duskull: 1,
     kabuto: 1,
     magikarp: 1,
@@ -32,6 +33,7 @@ module.exports = {
     kirlia: 2,
     lickitung: 2,
     magmar: 2,
+    magneton: 2,
     manectric: 2,
     marshtomp: 2,
     mawile: 2,
@@ -116,6 +118,6 @@ module.exports = {
     null, // 2
     null, // 3
     null, // 4
-    'regirock', // 5
+    null, // 5
   ],
 };
