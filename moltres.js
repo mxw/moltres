@@ -311,7 +311,7 @@ const reqs = {
   'egg': {
     perms: Permission.BLACKLIST,
     access: Access.REGION_DM,
-    usage: '<gym-handle-or-name> <tier> <time-til-hatch MM:SS>',
+    usage: '<gym-handle-or-name> <tier> <time-til-hatch [HH:]MM:SS>',
     args: [Arg.VARIADIC, Arg.TIER, Arg.TIMER],
     mod_mask: Mod.FORCE | Mod.ANON,
     desc: 'Report a raid egg.',
@@ -334,7 +334,7 @@ const reqs = {
   'boss': {
     perms: Permission.BLACKLIST,
     access: Access.REGION_DM,
-    usage: '<gym-handle-or-name> <boss> <time-til-despawn MM:SS>',
+    usage: '<gym-handle-or-name> <boss> <time-til-despawn [HH:]MM:SS>',
     args: [Arg.VARIADIC, Arg.BOSS, Arg.TIMER],
     mod_mask: Mod.FORCE | Mod.ANON,
     desc: 'Report a hatched raid boss.',
@@ -1272,13 +1272,16 @@ function hatch_from_despawn(despawn) {
  * Extract the minutes and seconds from a raid countdown timer.
  */
 function parse_timer(timer) {
-  let matches = timer.match(/^(\d{1,2})[:.](\d\d)$/);
+  let matches = timer.match(/^(\d{1,2}[:.])?(\d{1,2})[:.](\d\d)$/);
   if (matches === null) return null;
 
-  let [, mins, secs] = matches;
+  let [, hrs = 0, mins, secs] = matches;
   if (secs >= 60) return null;
 
-  return { mins: parseInt(mins), secs: parseInt(secs) };
+  return {
+    mins: 60 * parseInt(hrs) + parseInt(mins),
+    secs: parseInt(secs),
+  };
 }
 
 /*
@@ -2030,7 +2033,7 @@ async function handle_report(msg, handle, tier, boss, timer, mods) {
     return log_invalid(msg, `Invalid raid boss \`${boss.arg}\`.`);
   }
   if (timer instanceof InvalidArg) {
-    return log_invalid(msg, `Invalid MM:SS timer \`${timer.arg}\`.`);
+    return log_invalid(msg, `Invalid [HH:]MM:SS timer \`${timer.arg}\`.`);
   }
 
   let egg_adjust = boss === null ? boss_duration : 0;
