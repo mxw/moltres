@@ -2471,10 +2471,6 @@ async function handle_change_time(msg, handle, current, to, desired) {
   if (err) return log_mysql_error(msg, err);
 
   if (result.affectedRows === 0) {
-    return log_invalid(msg,
-      `No raid at \`${time_str(current)}\` found for \`[${handle}]\` ` +
-      `(or \`${time_str(desired)}\` is not a valid raid time).`
-    );
     let [call_row, gym] =
       await query_for_error_call(msg, handle, current, 'change-time');
     if (!call_row) return;
