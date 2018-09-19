@@ -2931,14 +2931,14 @@ function has_access(msg, request) {
     return access & Access.DM ||
           (access & Access.ADMIN_DM && config.admin_ids.has(msg.author.id));
   }
+  if (msg.channel.id in config.channels) {
+    if (access & Access.REGION) return true;
+  }
   if (config.ex.channels.has(msg.channel.id)) {
-    return access & Access.EX_MAIN;
+    if (access & Access.EX_MAIN) return true;
   }
   if (is_ex_room(msg.channel)) {
     return access & Access.EX_ROOM;
-  }
-  if (msg.channel.id in config.channels) {
-    return access & Access.REGION;
   }
   return false;
 }
@@ -3103,6 +3103,7 @@ _Channel:_  #${from_dm(msg) ? '[dm]' : msg.channel.name}`;
  */
 moltres.on('message', async msg => {
   if (msg.channel.id in config.channels ||
+      config.ex.channels.has(msg.channel.id) ||
       from_dm(msg) || is_ex_room(msg.channel)) {
     try {
       await process_request(msg);
