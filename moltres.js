@@ -2451,7 +2451,7 @@ async function handle_change_time(msg, handle, current, to, desired) {
 
   // See comment in handle_call().
   let later = new Date(desired.getTime());
-  later.setMinutes(later.getMinutes() + 46);
+  later.setMinutes(later.getMinutes() + boss_duration + 1);
 
   let assignment = {
     caller: msg.author.id,
