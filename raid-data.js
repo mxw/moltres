@@ -90,6 +90,7 @@ module.exports = {
     articuno: 5,
     zapdos: 5,
     moltres: 5,
+    mewtwo: 5,
     raikou: 5,
     entei: 5,
     suicune: 5,
@@ -118,6 +119,6 @@ module.exports = {
     null, // 2
     null, // 3
     null, // 4
-    null, // 5
+    'mewtwo', // 5
   ],
 };
