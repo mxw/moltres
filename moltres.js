@@ -1617,13 +1617,14 @@ async function handle_test(msg, args) {
 async function check_one_gym(msg, handle, results) {
   if (results.length < 1) {
     await send_quiet(msg.channel,
-      `Multiple gyms found matching \`[${handle}]\`.` +
-      '  Please use a more specific search term.'
+      `Zero or multiple gyms found matching \`[${handle}]\`.` +
+      '  Please use a more accurate or specific search term.'
     );
     return false;
   } else if (results.length > 1) {
     await send_quiet(msg.channel,
-      `Multiple gyms matching \`[${handle}]\`.`
+      `Multiple gyms found matching \`[${handle}]\`.` +
+      '  Please use a more specific search term.'
     );
     return false;
   }
