@@ -11,6 +11,7 @@ module.exports = {
     totodile: 1,
 
     dratini: 1,
+    drowzee: 1,
     duskull: 1,
     kabuto: 1,
     magikarp: 1,
@@ -43,6 +44,7 @@ module.exports = {
     primeape: 2,
     roselia: 2,
     sableye: 2,
+    slowbro: 2,
     sneasel: 2,
     sudowoodo: 2,
     tentacruel: 2,
@@ -53,6 +55,7 @@ module.exports = {
     aerodactyl: 3,
     alakazam: 3,
     breloom: 3,
+    claydol: 3,
     donphan: 3,
     flareon: 3,
     gengar: 3,
