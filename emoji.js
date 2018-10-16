@@ -12,6 +12,7 @@ module.exports = {
   no_entry_sign: '🚫',
   no_good: '🙅',
   potato: '🥔',
+  pushpin: '📌',
   scorpion: '🦂',
   upside_down: '🙃',
   thinking: '🤔',

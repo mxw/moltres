@@ -119,7 +119,7 @@ const req_order = [
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
-  'ex', 'exit', 'examine', 'exclaim', 'explore', 'expunge',
+  'ex', 'exit', 'examine', 'exact', 'exclaim', 'explore', 'expunge',
 ];
 
 const req_to_perm = {
@@ -532,6 +532,18 @@ const reqs = {
     usage: '',
     args: [],
     desc: 'List all EX raiders in the current EX raid room.',
+    detail: [
+      'Can only be used from EX raid rooms.',
+    ],
+    examples: {
+    },
+  },
+  'exact': {
+    perms: Permission.BLACKLIST,
+    access: Access.EX_ROOM,
+    usage: '<HH:MM[am/pm]>',
+    args: [Arg.HOURMIN],
+    desc: 'Set the time for an EX raid.',
     detail: [
       'Can only be used from EX raid rooms.',
     ],
@@ -1179,19 +1191,24 @@ function parse_month_day(date) {
  *
  * This function uses rough heuristics to determine whether the user meant A.M.
  * or P.M., based on the assumption that the intent is always to represent the
- * most proximal time in the future.
+ * most proximal time in the future.  Users can override this with `am`/`pm`.
  */
 function parse_hour_minute(time) {
-  let matches = time.match(/^(\d{1,2})[:.](\d\d)$/);
+  let matches = time.match(/^(\d{1,2})[:.](\d\d)([aApP][mM])?$/);
   if (matches === null) return null;
 
-  let [, hours, mins] = matches;
+  let [, hours, mins, am_pm] = matches;
   [hours, mins] = [parseInt(hours), parseInt(mins)];
   if (hours >= 24 || mins >= 60) return null;
 
   let now = get_now();
 
   hours = function() {
+    if (am_pm) {
+      am_pm = am_pm.toLowerCase();
+      if (am_pm === 'am') return hours % 12;
+      if (am_pm === 'pm') return hours % 12 + 12;
+    }
     // 24-hour time; let the user use exactly that time.
     if (hours == 0 || hours >= 13) return hours;
     // Same or later morning hour.
@@ -2684,6 +2701,9 @@ async function handle_unjoin(msg, handle, call_time) {
 const ex_room_regex = /^.*-\w+-\d\d/;
 const ex_room_capture = /^(.*)-(\w+)-(\d\d)/;
 
+const ex_topic_capture =
+  /^(EX raid coordination for .* on [A-Z][a-z]+ \d+)(.*)\./;
+
 /*
  * Build a canonical EX raid room name using a gym `handle' and raid `date'.
  */
@@ -2808,14 +2828,17 @@ let ex_cache = {};
 function ex_cache_found(room_name) {
   return room_name in ex_cache;
 }
-function ex_cache_insert(room_name, uid) {
+function ex_cache_insert(room_name, user) {
   ex_cache[room_name] = ex_cache[room_name] || new Set();
-  ex_cache[room_name].add(uid);
+  ex_cache[room_name].add({
+    id: user.id,
+    mention: user.toString(),
+  });
 }
 function ex_cache_take(room_name) {
-  let uids = ex_cache[room_name];
+  let users = ex_cache[room_name];
   delete ex_cache[room_name];
-  return [...uids];
+  return [...users];
 }
 
 async function handle_ex(msg, handle, date) {
@@ -2876,24 +2899,33 @@ async function handle_ex(msg, handle, date) {
   // Check to see if anyone is already creating this room.  If so, we
   // should just add ourselves to the ex_cache entry and move on.
   if (ex_cache_found(room_name)) {
-    return ex_cache_insert(room_name, msg.author.id);
+    return ex_cache_insert(room_name, msg.author);
   }
 
   // Create an entry in the ex_cache representing our initiation of room
   // creation.  Anyone who attempts to create the same room before the API
   // call completes adds themselves above to the cache entry instead of
   // racing and creating a room of the same name.
-  ex_cache_insert(room_name, msg.author.id);
+  ex_cache_insert(room_name, msg.author);
   room = await create_ex_room(room_name, gym, date);
 
-  let uids = ex_cache_take(room_name);
-  return Promise.all(uids.map(id => enter_ex_room(id, room)));
+  let users = ex_cache_take(room_name);
+  await Promise.all(users.map(({id}) => enter_ex_room(id, room)));
+
+  let out = get_emoji('pushpin') +
+    `  ${users[0].mention}, please post a screenshot of your EX raid pass ` +
+    `and use \`$exact\` to set the raid time.  (Anyone can do this, but you ` +
+    `created the room.)`;
+  return send_quiet(room, out);
 }
 
 async function handle_explore(msg) {
   let room_info = new Map(guild().channels
     .filter(is_ex_room)
-    .map(room => ex_room_components(room.name))
+    .map(room => {
+      let [, , time] = room.topic.match(ex_topic_capture);
+      return Object.assign(ex_room_components(room.name), {time: time});
+    })
     .map(info => [info.handle, info])
   );
 
@@ -2907,9 +2939,9 @@ async function handle_explore(msg) {
 
   let output = 'Active EX raid rooms:\n\n' + results
     .map(gym => {
-      let info = room_info.get(gym.handle);
+      let r = room_info.get(gym.handle);
       const end = ' (EX!)'.length;
-      return `${gym_name(gym).slice(0, -end)} (${info.month} ${info.day})`;
+      return `${gym_name(gym).slice(0, -end)} (${r.month} ${r.day}${r.time})`;
     })
     .join('\n');
 
@@ -2951,6 +2983,18 @@ async function handle_examine(msg) {
       .setDescription(users.map(user => user.tag).join('\n'))
       .setColor('RED')
   });
+}
+
+async function handle_exact(msg, time) {
+  if (time instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${time.arg}\`.`);
+  }
+  let [, topic] = msg.channel.topic.match(ex_topic_capture);
+
+  return Promise.all([
+    msg.channel.setTopic(`${topic} at ${time_str(time)}.`),
+    react_success(msg),
+  ]);
 }
 
 async function handle_exclaim(msg, content) {
@@ -3066,6 +3110,7 @@ async function handle_request(msg, request, mods, argv) {
     case 'explore':   return handle_explore(msg, ...argv);
     case 'exit':      return handle_exit(msg, ...argv);
     case 'examine':   return handle_examine(msg, ...argv);
+    case 'exact':     return handle_exact(msg, ...argv);
     case 'exclaim':   return handle_exclaim(msg, ...argv);
     case 'expunge':   return handle_expunge(msg, ...argv);
     default:
