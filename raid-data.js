@@ -90,6 +90,7 @@ module.exports = {
     poliwrath: 4,
     rhydon: 4,
     snorlax: 4,
+    togetic: 4,
     tyranitar: 4,
     ursaring: 4,
     walrein: 4,
