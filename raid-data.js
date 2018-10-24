@@ -136,6 +136,6 @@ module.exports = {
     null, // 2
     null, // 3
     null, // 4
-    'mewtwo', // 5
+    'giratina', // 5
   ],
 };
