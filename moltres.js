@@ -1538,6 +1538,7 @@ function handle_reload_config(msg) {
   delete require.cache[require.resolve('./raid-data.js')];
 
   config = require('./config.js');
+  channels_for_region = compute_region_channel_map();
 
   raid_data = require('./raid-data.js');
   raid_tiers = raid_data.raid_tiers;
