@@ -10,6 +10,8 @@ const utils = require('./utils.js');
 let config = require('./config.js');
 let channels_for_region = compute_region_channel_map();
 
+let emoji_by_name = require('./emoji.js');
+
 ///////////////////////////////////////////////////////////////////////////////
 
 const moltres = new Discord.Client();
@@ -743,25 +745,6 @@ async function dm_reply_then_delete(msg, content, wait = 500) {
 function refresh(msg) {
   return msg.channel.fetchMessage(msg.id);
 }
-
-/*
- * Avoid polluting the rest of the file with emoji.
- */
-const emoji_by_name = {
-  alarm_clock: '⏰',
-  clock230: '🕝',
-  cry: '😢',
-  dash: '💨',
-  door: '🚪',
-  dragon: '🐉',
-  gem: '💎',
-  no_entry_sign: '🚫',
-  no_good: '🙅',
-  potato: '🥔',
-  thinking: '🤔',
-  walking: '🚶',
-  whale: '🐳',
-};
 
 /*
  * Get an emoji by name.
@@ -1536,6 +1519,7 @@ async function handle_set_perm(msg, user_tag, req) {
 function handle_reload_config(msg) {
   delete require.cache[require.resolve('./config.js')];
   delete require.cache[require.resolve('./raid-data.js')];
+  delete require.cache[require.resolve('./emoji.js')];
 
   config = require('./config.js');
   channels_for_region = compute_region_channel_map();
@@ -1544,6 +1528,8 @@ function handle_reload_config(msg) {
   raid_tiers = raid_data.raid_tiers;
   boss_aliases = raid_data.boss_aliases;
   bosses_for_tier = compute_tier_boss_map();
+
+  emoji_by_name = require('./emoji.js');
 
   return react_success(msg);
 }
