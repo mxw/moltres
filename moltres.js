@@ -388,7 +388,8 @@ const reqs = {
     args: [Arg.VARIADIC],
     desc: 'Delete a reported raid and all associated information.',
     detail: [
-      'Please use sparingly, only to undo mistakes.',
+      'Please use sparingly, only to undo mistakes.  To fix raid timers or',
+      'raid tier information, prefer `$egg!`, `$boss!`, or `$update!`.',
     ],
     examples: {
     },
