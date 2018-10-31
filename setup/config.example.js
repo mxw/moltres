@@ -68,6 +68,10 @@ module.exports = {
       deny: ['USE_EXTERNAL_EMOJIS'],
       allow: ['SEND_MESSAGES'],
     }],
+
+    // Whether to ban $exit on the day of the EX raid to encourage good
+    // communication.
+    exit_strict: false,
   },
 
   // Map from string region names to region role string IDs.

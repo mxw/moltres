@@ -2657,6 +2657,27 @@ function ex_room_components(room_name) {
 }
 
 /*
+ * Extract `date' into a format compatible with the output of
+ * ex_room_components().
+ */
+function ex_format_date(date) {
+  let str = date_str(date);
+  return {
+    month: str.slice(0, str.indexOf(' ')),
+    day: date.getDate(),
+  };
+}
+
+/*
+ * Whether the date for the EX raid `room_name' matches `ex_date', a date
+ * formatted by ex_format_date().
+ */
+function ex_room_matches_date(room_name, ex_date) {
+  let info = ex_room_components(room_name);
+  return ex_date.month === info.month && ex_date.day === info.day;
+}
+
+/*
  * Create a channel `room_name' for an EX raid at `gym' on `date'.
  */
 async function create_ex_room(room_name, gym, date) {
@@ -2857,6 +2878,15 @@ async function handle_exit(msg) {
       `You have not entered the EX room #${msg.channel.name}`
     );
   }
+
+  if (config.ex.exit_strict &&
+      ex_room_matches_date(msg.channel.name, ex_format_date(get_now()))) {
+    let out = get_emoji('upside_down') +
+      `  ${gyaoo}  It's rude to exit an EX raid room the day of the raid,` +
+      ` ${msg.author}!`;
+    return send_quiet(msg.channel, out);
+  }
+
   await exit_ex_room(msg.author.id, msg.channel);
   return chain_reaccs(msg, 'door', 'walking', 'dash');
 }
@@ -2893,18 +2923,11 @@ function handle_expunge(msg, date) {
   if (date instanceof InvalidArg) {
     return log_invalid(msg, `Invalid MM/DD date \`${date.arg}\`.`);
   }
-  let expected_str = date_str(date);
-  let expected = {
-    month: expected_str.slice(0, expected_str.indexOf(' ')),
-    day: date.getDate(),
-  };
+  let expected = ex_format_date(date);
 
   let rooms = guild().channels
     .filter(is_ex_room)
-    .filter(room => {
-      let info = ex_room_components(room.name);
-      return expected.month === info.month && expected.day === info.day;
-    });
+    .filter(room => ex_room_matches_date(room.name, expected));
 
   return Promise.all(rooms.map(room => room.delete()));
 }

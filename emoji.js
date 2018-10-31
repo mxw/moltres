@@ -13,6 +13,7 @@ module.exports = {
   no_good: '🙅',
   potato: '🥔',
   scorpion: '🦂',
+  upside_down: '🙃',
   thinking: '🤔',
   walking: '🚶',
   whale: '🐳',
