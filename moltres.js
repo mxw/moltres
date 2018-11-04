@@ -4,6 +4,7 @@
 'use strict';
 
 const Discord = require('discord.js');
+const ed = require('edit-distance');
 const mysql = require('./async-mysql.js');
 const utils = require('./utils.js');
 
@@ -1282,6 +1283,52 @@ function parse_tier(tier) {
 }
 
 /*
+ * Return the unique boss name matching `input', else return null.
+ *
+ * The match rules are as follows:
+ *    1/ Apply boss aliases to the input.
+ *    2/ If the input is a prefix of a single boss name, return it.
+ *    3/ Get all the boss names that start with input[0].  If there is a unique
+ *       boss with edit distance 1 from the input, return it.
+ */
+function parse_boss(input) {
+  input = input.toLowerCase();
+  input = boss_aliases[input] || input;
+
+  let wrap = boss => ({boss: boss, orig: input});
+
+  if (input.length === 0) return null;
+
+  let matches = raid_data.raid_trie.getPrefix(input);
+  if (matches.length === 1) return wrap(matches[0]);
+
+  matches = raid_data.raid_trie.getPrefix(input[0])
+    .map(boss => ({
+      boss: boss,
+      lev: ed.levenshtein(input, boss, _ => 1, _ => 1, (x, y) => x !== y),
+    }))
+    .filter(meta => meta.lev.distance <= 2);
+  if (matches.length === 1) return wrap(matches[0].boss);
+
+  return null;
+}
+
+/*
+ * Extract the boss name from the output of parse_boss(), DM-ing the user if
+ * the match was inexact.
+ */
+async function extract_boss(msg, boss) {
+  if (boss === null) return null;
+
+  if (!boss.boss.startsWith(boss.orig)) {
+    await dm_quiet(msg.author,
+      `Assuming \`${boss.orig}\` is the British spelling of \`${boss.boss}\`.`
+    );
+  }
+  return boss.boss;
+}
+
+/*
  * Parse a single argument `input' according to `kind'.
  */
 function parse_one_arg(input, kind) {
@@ -1303,9 +1350,7 @@ function parse_one_arg(input, kind) {
     case Arg.TIER:
       return parse_tier(input);
     case Arg.BOSS:
-      input = input.toLowerCase();
-      input = boss_aliases[input] || input;
-      return input in raid_tiers ? input : null;
+      return parse_boss(input);
     default: break;
   }
   return null;
@@ -2026,6 +2071,8 @@ async function handle_report(msg, handle, tier, boss, timer, mods) {
     return log_invalid(msg, `Invalid [HH:]MM:SS timer \`${timer.arg}\`.`);
   }
 
+  boss = await extract_boss(msg, boss);
+
   let egg_adjust = boss === null ? boss_duration : 0;
 
   let despawn = get_now();
@@ -2069,7 +2116,7 @@ function handle_boss(msg, handle, boss, timer, mods) {
   if (boss === null) {
     return log_invalid(msg, `Unrecognized raid boss \`${boss}\`.`);
   }
-  return handle_report(msg, handle, raid_tiers[boss], boss, timer, mods);
+  return handle_report(msg, handle, raid_tiers[boss.boss], boss, timer, mods);
 }
 
 async function handle_update(msg, handle, data, mods) {
@@ -2077,9 +2124,9 @@ async function handle_update(msg, handle, data, mods) {
 
   let now = get_now();
 
-  let assignment = function() {
-    let boss = boss_aliases[data_lower] || data_lower;
-    if (boss in raid_tiers) {
+  let assignment = await (async() => {
+    let boss = await extract_boss(msg, parse_boss(data_lower));
+    if (boss !== null) {
       return {
         tier: raid_tiers[boss],
         boss: boss,
@@ -2107,7 +2154,7 @@ async function handle_update(msg, handle, data, mods) {
     }
 
     return null;
-  }();
+  })();
 
   if (assignment === null) {
     return log_invalid(msg, `Invalid update parameter \`${data}\`.`);
