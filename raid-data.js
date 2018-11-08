@@ -14,6 +14,7 @@ let raid_tiers = {
   totodile: 1,
 
   bidoof: 1,
+  buizel: 1,
   buneary: 1,
   dratini: 1,
   drowzee: 1,
