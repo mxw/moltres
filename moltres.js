@@ -363,22 +363,17 @@ const reqs = {
   'update': {
     perms: Permission.BLACKLIST,
     access: Access.REGION_DM,
-    usage: '<gym-handle-or-name> <tier-or-boss-or-despawn-time-or-team>',
+    usage: '<gym-handle-or-name> <tier-or-boss-or-team>',
     args: [Arg.VARIADIC, Arg.STR],
     mod_mask: Mod.ANON,
     desc: 'Modify an active raid listing.',
     detail: [
-      'Note that unlike `$egg` and `$boss`, times are interpreted as',
-      '_despawn times_, not countdown timers.\n\n`$update` accepts one',
-      'modifier:\n\t`$update?` prevents your username from being included',
-      'in raid update messages.',
+      '`$update` accepts one modifier:\n\t`$update?` prevents your username',
+      'from being included in raid update messages.',
     ],
     examples: {
       'galaxy 4': 'Change the raid tier at Galaxy to 4.',
       'galaxy tyranitar': 'Set the raid boss at Galaxy to Tyranitar.',
-      'galaxy 3:35':
-        'Adjust the egg/boss timer to indicate that, once the egg hatches ' +
-        '(or if it\'s already hatched), it will despawn at 3:35 p.m.',
       'galaxy valor': 'Brag about your gym control.',
     },
   },
@@ -390,7 +385,7 @@ const reqs = {
     desc: 'Delete a reported raid and all associated information.',
     detail: [
       'Please use sparingly, only to undo mistakes.  To fix raid timers or',
-      'raid tier information, prefer `$egg!`, `$boss!`, or `$update!`.',
+      'raid tier information, prefer `$egg!` or `$boss!`.',
     ],
     examples: {
     },
@@ -2150,15 +2145,6 @@ async function handle_update(msg, handle, data, mods) {
       };
     }
 
-    let despawn = parse_hour_minute(data);
-    if (despawn !== null && despawn > now &&
-        pop_from_despawn(despawn) <= now) {
-      // See the comment in handle_call() for the reason behind adding
-      // this extra second.
-      despawn.setSeconds(despawn.getSeconds());
-      return { despawn: despawn };
-    }
-
     let tier = parse_tier(data);
     if (tier !== null) {
       return { tier: tier };
@@ -2202,7 +2188,7 @@ async function handle_update(msg, handle, data, mods) {
   if (result.changedRows === 0) {
     return send_quiet(msg.channel, 'Your update made no changes.');
   }
-  if ('tier' in assignment || 'despawn' in assignment) {
+  if ('tier' in assignment) {
     return send_raid_report_notif(msg, handle, 'updated', mods & Mod.ANON);
   }
   return react_success(msg);
