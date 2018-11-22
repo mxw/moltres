@@ -2220,6 +2220,10 @@ async function handle_scrub(msg, handle) {
   if (!found_one) return;
   let [raid] = results;
 
+  if (raid.spotter !== msg.author.id) {
+    return log_invalid(msg, 'Raids can only be scrubbed by their reporter.');
+  }
+
   [, err] = await moltresdb.query(
     'DELETE FROM raids WHERE gym_id = ?',
     [raid.gym_id]
