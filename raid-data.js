@@ -22,7 +22,9 @@ let raid_tiers = {
   kabuto: 1,
   kricketot: 1,
   magikarp: 1,
+  magnemite: 1,
   makuhita: 1,
+  mareep: 1,
   meditite: 1,
   omanyte: 1,
   shellder: 1,
@@ -34,12 +36,12 @@ let raid_tiers = {
   wailmer: 1,
   yanma: 1,
 
-  'alolan-exeggutor': 2,
   combusken: 2,
   croconaw: 2,
   electabuzz: 2,
   exeggutor: 2,
   kirlia: 2,
+  lanturn: 2,
   lickitung: 2,
   magmar: 2,
   magneton: 2,
@@ -81,10 +83,12 @@ let raid_tiers = {
   porygon: 3,
   scyther: 3,
   sharpedo: 3,
+  skarmory: 3,
   starmie: 3,
   tangela: 3,
   vaporeon: 3,
 
+  'alolan-exeggutor': 4,
   'alolan-marowak': 4,
   absol: 4,
   aggron: 4,
@@ -144,6 +148,6 @@ module.exports = {
     null, // 2
     null, // 3
     null, // 4
-    'giratina', // 5
+    'cresselia', // 5
   ],
 };
