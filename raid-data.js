@@ -67,6 +67,7 @@ let raid_tiers = {
   breloom: 3,
   claydol: 3,
   donphan: 3,
+  espeon: 3,
   flareon: 3,
   gengar: 3,
   granbull: 3,
@@ -86,6 +87,7 @@ let raid_tiers = {
   skarmory: 3,
   starmie: 3,
   tangela: 3,
+  umbreon: 3,
   vaporeon: 3,
 
   'alolan-exeggutor': 4,
