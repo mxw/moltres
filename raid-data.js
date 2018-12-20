@@ -36,8 +36,10 @@ let raid_tiers = {
   wailmer: 1,
   yanma: 1,
 
+  'alolan-exeggutor': 2,
   combusken: 2,
   croconaw: 2,
+  dewgong: 2,
   electabuzz: 2,
   exeggutor: 2,
   kirlia: 2,
@@ -90,7 +92,6 @@ let raid_tiers = {
   umbreon: 3,
   vaporeon: 3,
 
-  'alolan-exeggutor': 4,
   'alolan-marowak': 4,
   absol: 4,
   aggron: 4,
@@ -150,6 +151,6 @@ module.exports = {
     null, // 2
     null, // 3
     null, // 4
-    'cresselia', // 5
+    'heatran', // 5
   ],
 };
