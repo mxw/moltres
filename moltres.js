@@ -2922,12 +2922,26 @@ async function handle_explore(msg) {
   let [results, err] = await moltresdb.query(
     'SELECT * FROM gyms WHERE handle IN (' +
         Array(room_info.size).fill('?').join(',') +
-    ') ORDER BY handle',
+    ')',
     [...room_info.keys()]
   );
   if (err) return log_mysql_error(msg, err);
 
+  let month_str = ex_format_date(get_now()).month;
+
   let output = 'Active EX raid rooms:\n\n' + results
+    .sort((l, r) => {
+      l = room_info.get(l.handle);
+      r = room_info.get(r.handle);
+      // Rather than trying to map month names back to indices and deal with
+      // ordering December and January in the absence of explicit years,
+      // instead we just compare the month to the current month.  Since EX
+      // raids are only ever a week or two away, an EX raid whose month is not
+      // this month must be next month.
+      if (l.month === month_str && r.month !== month_str) return -1;
+      if (l.day !== r.day) return Math.sign(l.day - r.day);
+      return l.handle.localeCompare(r.handle);
+    })
     .map(gym => {
       let r = room_info.get(gym.handle);
       const end = ' (EX!)'.length;
