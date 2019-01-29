@@ -2939,6 +2939,7 @@ async function handle_explore(msg) {
       // raids are only ever a week or two away, an EX raid whose month is not
       // this month must be next month.
       if (l.month === month_str && r.month !== month_str) return -1;
+      if (r.month === month_str && l.month !== month_str) return 1;
       if (l.day !== r.day) return Math.sign(l.day - r.day);
       return l.handle.localeCompare(r.handle);
     })
