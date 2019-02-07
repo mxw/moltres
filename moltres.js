@@ -822,6 +822,23 @@ function total_mentions(msg) {
          msg.mentions.everyone;
 }
 
+/*
+ * Return whether `msg' has exactly one image attachment.
+ */
+function has_single_image(msg) {
+  if (msg.attachments.size !== 1) return null;
+  return !!msg.attachments.first().height;
+}
+
+/*
+ * Pin `msg' to its containing channel if there are no other pins.
+ */
+async function pin_if_first(msg) {
+  let pins = await msg.channel.fetchPinnedMessages();
+  if (pins.size !== 0) return;
+  return msg.pin();
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Error logging.
 
@@ -3216,6 +3233,10 @@ moltres.on('message', async msg => {
       config.ex.channels.has(msg.channel.id) ||
       from_dm(msg) || is_ex_room(msg.channel)) {
     try {
+      if (has_single_image(msg) &&
+          is_ex_room(msg.channel)) {
+        await pin_if_first(msg);
+      }
       await process_request(msg);
     } catch (e) {
       console.error(e);
