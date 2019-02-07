@@ -154,6 +154,7 @@ module.exports = {
     surfer: 'alolan-raichu',
     bones: 'alolan-marowak',
     peanuts: 'alolan-marowak',
+    'gym-bear': 'ursaring',
   },
   preferred: [
     null, // 0 (unused)
@@ -161,6 +162,6 @@ module.exports = {
     null, // 2
     null, // 3
     null, // 4
-    null, // 5
+    'palkia', // 5
   ],
 };
