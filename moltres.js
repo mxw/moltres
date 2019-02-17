@@ -5,13 +5,15 @@
 
 const Discord = require('discord.js');
 const ed = require('edit-distance');
+const trie = require('trie-prefix-tree');
+
 const mysql = require('./async-mysql.js');
 const utils = require('./utils.js');
 
+let emoji_by_name = require('./emoji.js');
 let config = require('./config.js');
 let channels_for_region = compute_region_channel_map();
-
-let emoji_by_name = require('./emoji.js');
+let raid_data = {};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -35,6 +37,18 @@ mysql.connect({
   moltresdb = res;
   console.log(`Connected as id ${moltresdb.conn.threadId}.`);
 
+  return read_bosses_table();
+})
+.then(raid_tiers => {
+  if (raid_tiers === null) {
+    console.error(`Could not read raid bosses table.`);
+    process.exit(1);
+  }
+  raid_data = {
+    raid_tiers: raid_tiers,
+    bosses_for_tier: compute_tier_boss_map(raid_tiers),
+    raid_trie: trie(Object.keys(raid_tiers)),
+  };
   moltres.login(config.moltres);
 })
 .catch(err => {
@@ -115,9 +129,10 @@ const InvalidArg = utils.InvalidArg;
  * Order of display for $help.
  */
 const req_order = [
-  'help', 'set-perm', null,
+  'help', null,
+  'set-perm', 'add-boss', 'rm-boss', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
-  'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', null,
+  'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', 'ls-bosses', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
   'ex', 'exit', 'examine', 'exact', 'exclaim', 'explore', 'expunge',
 ];
@@ -162,6 +177,44 @@ const reqs = {
     examples: {
     },
   },
+  'add-boss': {
+    perms: Permission.ADMIN,
+    access: Access.ALL,
+    usage: '',
+    args: [Arg.STR, Arg.TIER],
+    desc: 'Add a raid boss to the boss database.',
+    detail: [
+      'Can also be used to change a boss\'s tier.',
+    ],
+    examples: {
+      'giratina 5': 'Add a new T5 raid boss, Giratina.',
+    },
+  },
+  'rm-boss': {
+    perms: Permission.ADMIN,
+    access: Access.ALL,
+    usage: '',
+    args: [Arg.STR],
+    desc: 'Remove a raid boss from the boss database.',
+    detail: [],
+    examples: {
+      'wargreymon': 'You accidentally added a Digimon.  Fix your mistake.',
+    },
+  },
+
+  'reload-config': {
+    perms: Permission.ADMIN,
+    access: Access.ALL,
+    usage: '',
+    args: [],
+    desc: 'Reload the Moltres config file.',
+    detail: [
+      'This resets channel mappings, raid boss tiers, etc.  It is only',
+      'available to Moltres admins.',
+    ],
+    examples: {
+    },
+  },
   'raidday': {
     perms: Permission.ADMIN,
     access: Access.ALL,
@@ -179,19 +232,6 @@ const reqs = {
     args: null,
     desc: 'Flavor of the week testing command.',
     detail: [],
-    examples: {
-    },
-  },
-  'reload-config': {
-    perms: Permission.ADMIN,
-    access: Access.ALL,
-    usage: '',
-    args: [],
-    desc: 'Reload the Moltres config file.',
-    detail: [
-      'This resets channel mappings, raid boss tiers, etc.  It is only',
-      'available to Moltres admins.',
-    ],
     examples: {
     },
   },
@@ -387,6 +427,16 @@ const reqs = {
       'Please use sparingly, only to undo mistakes.  To fix raid timers or',
       'raid tier information, prefer `$egg!` or `$boss!`.',
     ],
+    examples: {
+    },
+  },
+  'ls-bosses': {
+    perms: Permission.NONE,
+    access: Access.ALL,
+    usage: '',
+    args: [],
+    desc: 'List all known raid bosses and tiers.',
+    detail: [],
     examples: {
     },
   },
@@ -589,24 +639,41 @@ const req_aliases = {
   'j':            'join',
 };
 
-let raid_data = require('./raid-data.js');
-let {raid_tiers, boss_aliases} = raid_data;
-let bosses_for_tier = compute_tier_boss_map();
-
 const gyaoo = 'Gyaoo!';
 
 ///////////////////////////////////////////////////////////////////////////////
 // Derived config state.
 
 /*
+ * Pull the entire bosses table into global data structures.
+ */
+async function read_bosses_table() {
+  let [results, err] = await moltresdb.query(
+    'SELECT * FROM bosses'
+  );
+  if (err) return null;
+
+  let raid_tiers = {};
+
+  for (let row of results) {
+    raid_tiers[row.boss] = row.tier;
+  }
+  return raid_tiers;
+}
+
+/*
  * Invert the boss-to-tier map and return the result.
  */
-function compute_tier_boss_map() {
+function compute_tier_boss_map(raid_tiers) {
   let ret = [];
+
   for (let boss in raid_tiers) {
     let tier = raid_tiers[boss];
     ret[tier] = ret[tier] || [];
     ret[tier].push(boss);
+  }
+  for (let list of ret) {
+    if (list) list.sort();
   }
   return ret;
 };
@@ -1322,7 +1389,7 @@ function parse_tier(tier) {
  */
 function parse_boss(input) {
   input = input.toLowerCase();
-  input = boss_aliases[input] || input;
+  input = config.boss_aliases[input] || input;
 
   let wrap = boss => ({boss: boss, orig: input});
 
@@ -1564,6 +1631,9 @@ function handle_help(msg, req) {
   }
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Config handlers.
+
 async function handle_set_perm(msg, user_tag, req) {
   if (!user_tag.match(Discord.MessageMentions.USERS_PATTERN) ||
       msg.mentions.users.size !== 1) {
@@ -1591,20 +1661,61 @@ async function handle_set_perm(msg, user_tag, req) {
   return react_success(msg);
 }
 
+async function handle_add_boss(msg, boss, tier) {
+  if (tier instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid raid tier \`${tier.arg}\`.`);
+  }
+
+  let old_tier = raid_data.raid_tiers[boss];
+
+  let [, err] = await moltresdb.query(
+    'REPLACE INTO bosses SET ?',
+    { boss: boss, tier: tier }
+  );
+  if (err) return log_mysql_error(msg, err);
+
+  if (!!old_tier) {
+    raid_data.bosses_for_tier[old_tier] =
+      raid_data.bosses_for_tier[old_tier].filter(b => b !== boss);
+  }
+  raid_data.raid_tiers[boss] = tier;
+  raid_data.bosses_for_tier[tier].push(boss);
+  raid_data.bosses_for_tier[tier].sort();
+  raid_data.raid_trie = trie(Object.keys(raid_data.raid_tiers));
+
+  return react_success(msg);
+}
+
+async function handle_rm_boss(msg, boss) {
+  if (!(boss in raid_data.raid_tiers)) {
+    return log_invalid(msg, `Unregistered raid boss \`${boss}\`.`);
+  }
+  let tier = raid_data.raid_tiers[boss];
+
+  let [, err] = await moltresdb.query(
+    'DELETE FROM bosses WHERE boss = ?',
+    [boss]
+  );
+  if (err) return log_mysql_error(msg, err);
+
+  delete raid_data.raid_tiers[boss];
+  raid_data.bosses_for_tier[tier] =
+    raid_data.bosses_for_tier[tier].filter(b => b !== boss);
+  raid_data.raid_trie = trie(Object.keys(raid_data.raid_tiers));
+
+  return react_success(msg);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Developer handlers.
+
 function handle_reload_config(msg) {
   delete require.cache[require.resolve('./config.js')];
-  delete require.cache[require.resolve('./raid-data.js')];
   delete require.cache[require.resolve('./emoji.js')];
 
+  emoji_by_name = require('./emoji.js');
   config = require('./config.js');
   channels_for_region = compute_region_channel_map();
-
-  raid_data = require('./raid-data.js');
-  raid_tiers = raid_data.raid_tiers;
-  boss_aliases = raid_data.boss_aliases;
-  bosses_for_tier = compute_tier_boss_map();
-
-  emoji_by_name = require('./emoji.js');
 
   return react_success(msg);
 }
@@ -1620,7 +1731,7 @@ async function handle_raidday(msg, boss, despawn) {
   return moltresdb.query(
     'REPLACE INTO raids (`gym_id`, `tier`, `boss`,  `despawn`, `spotter`) ' +
     '   SELECT `id`, ?, ?, ?, ? FROM gyms',
-    [raid_tiers[boss], boss, despawn, msg.author.id]
+    [raid_data.raid_tiers[boss], boss, despawn, msg.author.id]
   );
 }
 
@@ -1848,18 +1959,23 @@ function should_display_calls(msg) {
 }
 
 /*
+ * Canonicalize a raid boss name.
+ */
+function fmt_boss(boss) {
+  return boss.split('-').map(capitalize).join(' ');
+}
+
+/*
  * Canonical string for displaying a raid boss from a raids table row.
  */
 function fmt_tier_boss(raid) {
   let tier = raid.tier;
 
-  let fmt = boss => boss.split('-').map(capitalize).join(' ');
-
   let boss = raid.boss !== null
-    ? fmt(raid.boss)
-    : (tier < bosses_for_tier.length &&
-       raid_data.preferred[tier])
-        ? fmt(raid_data.preferred[tier])
+    ? fmt_boss(raid.boss)
+    : (tier < raid_data.bosses_for_tier.length &&
+       config.boss_defaults[tier])
+        ? fmt_boss(config.boss_defaults[tier])
         : 'unknown';
 
   return `T${tier} ${boss}`;
@@ -2145,7 +2261,9 @@ function handle_boss(msg, handle, boss, timer, mods) {
   if (boss === null) {
     return log_invalid(msg, `Unrecognized raid boss \`${boss}\`.`);
   }
-  return handle_report(msg, handle, raid_tiers[boss.boss], boss, timer, mods);
+  return handle_report(
+    msg, handle, raid_data.raid_tiers[boss.boss], boss, timer, mods
+  );
 }
 
 async function handle_update(msg, handle, data, mods) {
@@ -2157,7 +2275,7 @@ async function handle_update(msg, handle, data, mods) {
     let boss = await extract_boss(msg, parse_boss(data_lower));
     if (boss !== null) {
       return {
-        tier: raid_tiers[boss],
+        tier: raid_data.raid_tiers[boss],
         boss: boss,
       };
     }
@@ -2240,6 +2358,17 @@ async function handle_scrub(msg, handle) {
     `${get_emoji('banned')} Raid reported by ${spotter} ` +
     `at ${gym_name(raid)} was scrubbed.`
   );
+}
+
+function handle_ls_bosses(msg) {
+  let outvec = [];
+
+  for (let tier = 1; tier <= 5; ++tier) {
+    outvec.push(`**T${tier}:**\t` +
+      raid_data.bosses_for_tier[tier].map(fmt_boss).join(', ')
+    );
+  }
+  return send_quiet(msg.channel, outvec.join('\n\n'));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -3105,9 +3234,12 @@ async function handle_request(msg, request, mods, argv) {
   switch (request) {
     case 'help':      return handle_help(msg, ...argv);
     case 'set-perm':  return handle_set_perm(msg, ...argv);
+    case 'add-boss':  return handle_add_boss(msg, ...argv);
+    case 'rm-boss':   return handle_rm_boss(msg, ...argv);
+
+    case 'reload-config': return handle_reload_config(msg, ...argv);
     case 'raidday':   return handle_raidday(msg, ...argv);
     case 'test':      return handle_test(msg, ...argv);
-    case 'reload-config': return handle_reload_config(msg, ...argv);
 
     case 'gym':       return handle_gym(msg, ...argv);
     case 'ls-gyms':   return handle_ls_gyms(msg, ...argv);
@@ -3121,6 +3253,7 @@ async function handle_request(msg, request, mods, argv) {
     case 'boss':      return handle_boss(msg, ...argv, mods);
     case 'update':    return handle_update(msg, ...argv, mods);
     case 'scrub':     return handle_scrub(msg, ...argv);
+    case 'ls-bosses': return handle_ls_bosses(msg, ...argv);
 
     case 'call':      return handle_call(msg, ...argv);
     case 'cancel':    return handle_cancel(msg, ...argv);

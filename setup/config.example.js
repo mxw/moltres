@@ -98,5 +98,19 @@ module.exports = {
     instinct: 'instinct',
     raidegg: '🥚',
     boss: '🐳',
-  }
+  },
+
+  // Map from boss nicknames to full names.
+  boss_aliases: {
+    ttar: 'tyranitar',
+  },
+  // Zero-indexed array of default bosses for each tier.
+  boss_defaults: [
+    null, // 0 (unused)
+    null, // 1
+    null, // 2
+    null, // 3
+    null, // 4
+    'giratina', // 5
+  ],
 };

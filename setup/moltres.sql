@@ -1,4 +1,4 @@
-/**
+/*
  * MySQL moltresdb boostrap script.
  */
 
@@ -59,4 +59,10 @@ CREATE TABLE `permissions` (
   `cmd` varchar(64) NOT NULL,
   `user_id` bigint(20) unsigned NOT NULL,
   PRIMARY KEY (`cmd`,`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `bosses` (
+  `boss` char(16) NOT NULL,
+  `tier` tinyint(3) unsigned NOT NULL,
+  PRIMARY KEY (`boss`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
