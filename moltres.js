@@ -134,7 +134,7 @@ const req_order = [
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', 'ls-bosses', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
-  'ex', 'exit', 'examine', 'exact', 'exclaim', 'explore', 'expunge',
+  'ex', 'exit', 'examine', 'exact', 'exclaim', 'explore', 'expunge', 'exalt',
 ];
 
 const req_to_perm = {
@@ -562,18 +562,6 @@ const reqs = {
       'jh': 'Enter the EX raid room for **John Harvard Statue**.',
     },
   },
-  'explore': {
-    perms: Permission.BLACKLIST,
-    access: Access.EX_MAIN,
-    usage: '',
-    args: [],
-    desc: 'List all active EX raid rooms.',
-    detail: [
-      'Can only be used from the designated EX raid discussion channel.',
-    ],
-    examples: {
-    },
-  },
   'exit': {
     perms: Permission.BLACKLIST,
     access: Access.EX_ROOM,
@@ -622,14 +610,35 @@ const reqs = {
     examples: {
     },
   },
+  'explore': {
+    perms: Permission.BLACKLIST,
+    access: Access.EX_MAIN,
+    usage: '',
+    args: [],
+    desc: 'List all active EX raid rooms.',
+    detail: [
+      'Can only be used from the designated EX raid discussion channel.',
+    ],
+    examples: {
+    },
+  },
   'expunge': {
     perms: Permission.WHITELIST,
     access: Access.EX_MAIN,
     usage: '<MM/DD>',
     args: [Arg.MONTHDAY],
     desc: 'Clear all EX raid rooms for the given date.',
-    detail: [
-    ],
+    detail: [],
+    examples: {
+    },
+  },
+  'exalt': {
+    perms: Permission.WHITELIST,
+    access: Access.EX_MAIN,
+    usage: '<gym-handle-or-name>',
+    args: [Arg.VARIADIC],
+    desc: 'Mark a gym as EX-eligible.',
+    detail: [],
     examples: {
     },
   },
@@ -3233,6 +3242,22 @@ function handle_expunge(msg, date) {
   return Promise.all(rooms.map(room => room.delete()));
 }
 
+async function handle_exalt(msg, handle) {
+  let [result, err] = await moltresdb.query(
+    'UPDATE gyms SET `ex` = 1 WHERE `handle` IN ( ' +
+    '   SELECT `handle` FROM ( ' +
+    '     SELECT `handle` FROM gyms WHERE ' + where_one_gym(handle) +
+    '   ) AS gyms_ ' +
+    ')'
+  );
+  if (err) return log_mysql_error(msg, err);
+
+  if (result.changedRows === 0) {
+    return send_quiet(msg.channel, 'Gym already marked EX-eligible.');
+  }
+  return react_success(msg);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 /*
@@ -3322,12 +3347,13 @@ async function handle_request(msg, request, mods, argv) {
     case 'unjoin':    return handle_unjoin(msg, ...argv);
 
     case 'ex':        return handle_ex(msg, ...argv);
-    case 'explore':   return handle_explore(msg, ...argv);
     case 'exit':      return handle_exit(msg, ...argv);
     case 'examine':   return handle_examine(msg, ...argv);
     case 'exact':     return handle_exact(msg, ...argv);
     case 'exclaim':   return handle_exclaim(msg, ...argv);
+    case 'explore':   return handle_explore(msg, ...argv);
     case 'expunge':   return handle_expunge(msg, ...argv);
+    case 'exalt':     return handle_exalt(msg, ...argv);
     default:
       return log_invalid(msg, `Invalid request \`${request}\`.`, true);
   }
