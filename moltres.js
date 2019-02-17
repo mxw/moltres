@@ -316,6 +316,9 @@ const reqs = {
       'of copying.',
     ],
     examples: {
+      'harbor In-the-Ocean 42.3571413, -71.0418669 Spoofer Trap':
+        'Add the `[harbor]` **Spoofer Trap** gym at the given coordinates ' +
+        'to the "In the Ocean" region.',
     },
   },
   'ls-regions': {
