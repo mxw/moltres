@@ -138,6 +138,8 @@ const req_order = [
 ];
 
 const req_to_perm = {
+  'add-boss': 'boss-table',
+  'rm-boss':  'boss-table',
   'gym':        'gym',
   'ls-gyms':    'gym',
   'search-gym': 'gym',
@@ -178,7 +180,7 @@ const reqs = {
     },
   },
   'add-boss': {
-    perms: Permission.ADMIN,
+    perms: Permission.WHITELIST,
     access: Access.ALL,
     usage: '',
     args: [Arg.STR, Arg.TIER],
@@ -191,7 +193,7 @@ const reqs = {
     },
   },
   'rm-boss': {
-    perms: Permission.ADMIN,
+    perms: Permission.WHITELIST,
     access: Access.ALL,
     usage: '',
     args: [Arg.STR],
