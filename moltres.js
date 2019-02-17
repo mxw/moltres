@@ -130,7 +130,7 @@ const InvalidArg = utils.InvalidArg;
  */
 const req_order = [
   'help', null,
-  'set-perm', 'add-boss', 'rm-boss', null,
+  'set-perm', 'ls-perms', 'add-boss', 'rm-boss', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', 'ls-bosses', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
@@ -169,13 +169,23 @@ const reqs = {
   },
   'set-perm': {
     perms: Permission.ADMIN,
-    access: Access.REGION | Access.EX_ALL,
+    access: Access.ALL,
     usage: '<user> <request>',
     args: [Arg.STR, Arg.STR],
     desc: 'Enable others to use more (or fewer) requests.',
     detail: [
       'The user should be identified by tag.',
     ],
+    examples: {
+    },
+  },
+  'ls-perms': {
+    perms: Permission.ADMIN,
+    access: Access.ALL,
+    usage: '',
+    args: [],
+    desc: 'List all existing permissions modifiers.',
+    detail: [],
     examples: {
     },
   },
@@ -1661,6 +1671,50 @@ async function handle_set_perm(msg, user_tag, req) {
     return log_invalid(msg, 'Unknown failure.');
   }
   return react_success(msg);
+}
+
+async function handle_ls_perms(msg) {
+  let [results, err] = await moltresdb.query(
+    'SELECT * FROM permissions'
+  );
+  if (err) return log_mysql_error(msg, err);
+
+  let perms = {};
+
+  for (let row of results) {
+    perms[row.cmd] = perms[row.cmd] || [];
+
+    let member = guild().members.get(row.user_id);
+    if (!member) continue;
+
+    perms[row.cmd].push(member.nickname || member.user.username);
+  }
+
+  let outvec = [];
+
+  for (let req in perms) {
+    if (perms[req].length === 0) continue;
+    perms[req].sort();
+
+    let example_req = req;
+
+    // Just loop through the permissions alias table to find an example.
+    for (let ex in req_to_perm) {
+      if (req_to_perm[ex] === req) {
+        example_req = ex;
+        break;
+      }
+    }
+    let perm = reqs[example_req].perms;
+    let perm_str = perm === Permission.WHITELIST ? 'whitelist' :
+                   perm === Permission.BLACKLIST ? 'blacklist' :
+                   'unknown';
+
+    outvec.push(`\`${req}\` [${perm_str}]:\t` + perms[req].join(', '));
+  }
+  return send_quiet(msg.channel,
+    `**Permissions:**\n\n` + outvec.join('\n')
+  );
 }
 
 async function handle_add_boss(msg, boss, tier) {
@@ -3236,6 +3290,7 @@ async function handle_request(msg, request, mods, argv) {
   switch (request) {
     case 'help':      return handle_help(msg, ...argv);
     case 'set-perm':  return handle_set_perm(msg, ...argv);
+    case 'ls-perms':  return handle_ls_perms(msg, ...argv);
     case 'add-boss':  return handle_add_boss(msg, ...argv);
     case 'rm-boss':   return handle_rm_boss(msg, ...argv);
 
