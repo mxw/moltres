@@ -138,6 +138,8 @@ const req_order = [
 ];
 
 const req_to_perm = {
+  'set-perm': 'perms',
+  'ls-perms': 'perms',
   'add-boss': 'boss-table',
   'rm-boss':  'boss-table',
   'gym':        'gym',
@@ -168,7 +170,7 @@ const reqs = {
     },
   },
   'set-perm': {
-    perms: Permission.ADMIN,
+    perms: Permission.WHITELIST,
     access: Access.ALL,
     usage: '<user> <request>',
     args: [Arg.STR, Arg.STR],
@@ -180,7 +182,7 @@ const reqs = {
     },
   },
   'ls-perms': {
-    perms: Permission.ADMIN,
+    perms: Permission.WHITELIST,
     access: Access.ALL,
     usage: '',
     args: [],
