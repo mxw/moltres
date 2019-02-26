@@ -1733,6 +1733,7 @@ async function handle_add_boss(msg, boss, tier) {
   if (tier instanceof InvalidArg) {
     return log_invalid(msg, `Invalid raid tier \`${tier.arg}\`.`);
   }
+  boss = boss.toLowerCase();
 
   let old_tier = raid_data.raid_tiers[boss];
 
