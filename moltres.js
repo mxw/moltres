@@ -39,7 +39,7 @@ mysql.connect({
 
   return read_bosses_table();
 })
-.then(raid_tiers => {
+.then(([raid_tiers, boss_defaults]) => {
   if (raid_tiers === null) {
     console.error(`Could not read raid bosses table.`);
     process.exit(1);
@@ -48,6 +48,7 @@ mysql.connect({
     raid_tiers: raid_tiers,
     bosses_for_tier: compute_tier_boss_map(raid_tiers),
     raid_trie: trie(Object.keys(raid_tiers)),
+    boss_defaults: boss_defaults,
   };
   moltres.login(config.moltres);
 })
@@ -130,7 +131,7 @@ const InvalidArg = utils.InvalidArg;
  */
 const req_order = [
   'help', null,
-  'set-perm', 'ls-perms', 'add-boss', 'rm-boss', null,
+  'set-perm', 'ls-perms', 'add-boss', 'rm-boss', 'def-boss', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', 'ls-bosses', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
@@ -142,6 +143,7 @@ const req_to_perm = {
   'ls-perms': 'perms',
   'add-boss': 'boss-table',
   'rm-boss':  'boss-table',
+  'def-boss': 'boss-table',
   'gym':        'gym',
   'ls-gyms':    'gym',
   'search-gym': 'gym',
@@ -192,7 +194,7 @@ const reqs = {
   'add-boss': {
     perms: Permission.WHITELIST,
     access: Access.ALL,
-    usage: '',
+    usage: '<boss> <tier>',
     args: [Arg.STR, Arg.TIER],
     desc: 'Add a raid boss to the boss database.',
     detail: [
@@ -205,12 +207,23 @@ const reqs = {
   'rm-boss': {
     perms: Permission.WHITELIST,
     access: Access.ALL,
-    usage: '',
+    usage: '<boss>',
     args: [Arg.STR],
     desc: 'Remove a raid boss from the boss database.',
     detail: [],
     examples: {
       'wargreymon': 'You accidentally added a Digimon.  Fix your mistake.',
+    },
+  },
+  'def-boss': {
+    perms: Permission.WHITELIST,
+    access: Access.ALL,
+    usage: '<boss>',
+    args: [Arg.STR],
+    desc: 'Make a raid boss the default boss for its tier.',
+    detail: [],
+    examples: {
+      'rayquaza': 'Celebrate Rayquaza\'s return as the default T5!',
     },
   },
 
@@ -675,14 +688,18 @@ async function read_bosses_table() {
   let [results, err] = await moltresdb.query(
     'SELECT * FROM bosses'
   );
-  if (err) return null;
+  if (err) return [null, null];
 
   let raid_tiers = {};
+  let boss_defaults = [];
 
   for (let row of results) {
+    if (row.is_default) {
+      boss_defaults[row.tier] = row.boss;
+    }
     raid_tiers[row.boss] = row.tier;
   }
-  return raid_tiers;
+  return [raid_tiers, boss_defaults];
 }
 
 /*
@@ -1762,7 +1779,7 @@ async function handle_rm_boss(msg, boss) {
   let tier = raid_data.raid_tiers[boss];
 
   let [, err] = await moltresdb.query(
-    'DELETE FROM bosses WHERE boss = ?',
+    'DELETE FROM bosses WHERE `boss` = ?',
     [boss]
   );
   if (err) return log_mysql_error(msg, err);
@@ -1771,6 +1788,25 @@ async function handle_rm_boss(msg, boss) {
   raid_data.bosses_for_tier[tier] =
     raid_data.bosses_for_tier[tier].filter(b => b !== boss);
   raid_data.raid_trie = trie(Object.keys(raid_data.raid_tiers));
+
+  return react_success(msg);
+}
+
+async function handle_def_boss(msg, boss) {
+  if (!(boss in raid_data.raid_tiers)) {
+    return log_invalid(msg, `Unregistered raid boss \`${boss}\`.`);
+  }
+  let tier = raid_data.raid_tiers[boss];
+
+  let [, err] = await moltresdb.query(
+    'UPDATE bosses ' +
+    '  SET `is_default` = CASE WHEN `boss` = ? THEN 1 ELSE 0 END ' +
+    '  WHERE `tier` = ?',
+    [boss, tier]
+  );
+  if (err) return log_mysql_error(msg, err);
+
+  raid_data.boss_defaults[tier] = boss;
 
   return react_success(msg);
 }
@@ -2043,8 +2079,8 @@ function fmt_tier_boss(raid) {
   let boss = raid.boss !== null
     ? fmt_boss(raid.boss)
     : (tier < raid_data.bosses_for_tier.length &&
-       config.boss_defaults[tier])
-        ? fmt_boss(config.boss_defaults[tier])
+       raid_data.boss_defaults[tier])
+        ? fmt_boss(raid_data.boss_defaults[tier])
         : 'unknown';
 
   return `T${tier} ${boss}`;
@@ -2433,8 +2469,14 @@ function handle_ls_bosses(msg) {
   let outvec = [];
 
   for (let tier = 1; tier <= 5; ++tier) {
+    let fmt_boss_with_default = function(boss) {
+      let formatted = fmt_boss(boss);
+      return raid_data.boss_defaults[tier] === boss
+        ? formatted + ' _(default)_'
+        : formatted;
+    };
     outvec.push(`**T${tier}:**\t` +
-      raid_data.bosses_for_tier[tier].map(fmt_boss).join(', ')
+      raid_data.bosses_for_tier[tier].map(fmt_boss_with_default).join(', ')
     );
   }
   return send_quiet(msg.channel, outvec.join('\n\n'));
@@ -3322,6 +3364,7 @@ async function handle_request(msg, request, mods, argv) {
     case 'ls-perms':  return handle_ls_perms(msg, ...argv);
     case 'add-boss':  return handle_add_boss(msg, ...argv);
     case 'rm-boss':   return handle_rm_boss(msg, ...argv);
+    case 'def-boss':  return handle_def_boss(msg, ...argv);
 
     case 'reload-config': return handle_reload_config(msg, ...argv);
     case 'raidday':   return handle_raidday(msg, ...argv);
