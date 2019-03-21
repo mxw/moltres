@@ -218,12 +218,16 @@ const reqs = {
   'def-boss': {
     perms: Permission.WHITELIST,
     access: Access.ALL,
-    usage: '<boss>',
+    usage: '<boss|tier>',
     args: [Arg.STR],
     desc: 'Make a raid boss the default boss for its tier.',
-    detail: [],
+    detail: [
+      'Passing a raid tier instead of a boss name will clear the default for',
+      'that tier.',
+    ],
     examples: {
       'rayquaza': 'Celebrate Rayquaza\'s return as the default T5!',
+      '5': 'Alas, T5 bosses are a mystery.',
     },
   },
 
@@ -1793,10 +1797,14 @@ async function handle_rm_boss(msg, boss) {
 }
 
 async function handle_def_boss(msg, boss) {
-  if (!(boss in raid_data.raid_tiers)) {
-    return log_invalid(msg, `Unregistered raid boss \`${boss}\`.`);
-  }
   let tier = raid_data.raid_tiers[boss];
+  if (!tier) {
+    tier = parse_tier(boss);
+    boss = null;
+    if (tier === null) {
+      return log_invalid(msg, `Unregistered raid boss \`${boss}\`.`);
+    }
+  }
 
   let [, err] = await moltresdb.query(
     'UPDATE bosses ' +
