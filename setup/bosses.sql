@@ -95,7 +95,7 @@ INSERT INTO `bosses` (`boss`, `tier`) VALUES
   ('meditite',1),
   ('mesprit',5),
   ('metagross',4),
-  ('mewtwo',5,1),
+  ('mewtwo',5),
   ('miltank',3),
   ('minun',1),
   ('misdreavus',2),
