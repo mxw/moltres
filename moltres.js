@@ -27,9 +27,9 @@ let moltresdb;
 
 mysql.connect({
   host: 'localhost',
-  user: 'moltres',
-  password: config.moltresdb,
-  database: 'moltresdb',
+  user: config.dbuser || 'moltres',
+  password: config.dbpass,
+  database: config.dbname || 'moltresdb',
   supportBigNumbers: true,
   bigNumberStrings: true,
 })

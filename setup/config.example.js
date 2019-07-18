@@ -3,7 +3,9 @@
  */
 module.exports = {
   moltres: "DISCORD_BOT_LOGIN_TOKEN",
-  moltresdb: "MYSQL_MOLTRESDB_USER_PASSWORD",
+  dbname: "MYSQL_DB_NAME", // default: moltresdb
+  dbuser: "MYSQL_USER", // default: moltres
+  dbpass: "MYSQL_USER_PASSWORD",
 
   // All Discord IDs are ~18 digit integers given as strings, e.g.,
   // '663943454550151362'.  All the IDs below are randomly generated.
