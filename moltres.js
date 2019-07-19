@@ -2454,7 +2454,8 @@ async function handle_scrub(msg, handle) {
   if (!found_one) return;
   let [raid] = results;
 
-  if (raid.spotter !== msg.author.id) {
+  if (raid.spotter !== msg.author.id &&
+      !config.admin_ids.has(msg.author.id)) {
     return log_invalid(msg, 'Raids can only be scrubbed by their reporter.');
   }
 
