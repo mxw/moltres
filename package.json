@@ -15,6 +15,7 @@
     "edit-distance": "^1.0.1",
     "erlpack": "github:discordapp/erlpack",
     "libsodium-wrappers": "^0.7.3",
+    "luxon": "^1.17.1",
     "mysql": "2.15.x",
     "node-opus": "^0.2.9",
     "opusscript": "^0.0.6",
