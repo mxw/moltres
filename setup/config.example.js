@@ -76,17 +76,26 @@ module.exports = {
     exit_strict: false,
   },
 
-  // Map from string region names to region role string IDs.
+  // Map from string region names to region role string IDs.  Optional for each
+  // region.
   regions: {
     'Foobar Square': '217411278013305715',
     'Baz University': '375010432273546672',
   },
-  // Map from string meta-region names to array of constituent regions.
+  // Map from string meta-region names to array of constituent regions.  Not
+  // all regions need to be contained in metaregions, and a region can belong
+  // to multiple metaregions.
   metaregions: {
     'Downtown': ['Foobar Square', 'Baz University'],
   },
+  // Map from string region or metaregion names to tz database name override.
+  timezones: {
+    'Downtown': 'America/Los_Angeles',
+  },
   // Name of the geographic area your server encompasses.
   area: 'Metropolis',
+  // Default tz database time zone name.
+  tz_default: 'America/New_York',
 
   // Map from Moltres's emoji names to custom emoji names or supported Discord
   // emoji available on any of its servers.

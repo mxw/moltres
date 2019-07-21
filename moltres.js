@@ -13,6 +13,7 @@ const utils = require('./utils.js');
 let emoji_by_name = require('./emoji.js');
 let config = require('./config.js');
 let channels_for_region = compute_region_channel_map();
+let tz_for_region = compute_region_tz_map();
 let raid_data = {};
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -749,6 +750,30 @@ function compute_region_channel_map() {
   return ret;
 }
 
+/*
+ * Splat metaregions out into regions for the region-to-timezone map.
+ *
+ * Any region overrides will take precedence over overrides for any containing
+ * metaregions.
+ */
+function compute_region_tz_map() {
+  let ret = {};
+
+  for (let region in config.timezones) {
+    if (!(region in config.metaregions)) continue;
+
+    for (let subregion of config.metaregions[region]) {
+      ret[subregion] = config.timezones[region];
+    }
+  }
+  for (let region in config.timezones) {
+    if (region in config.metaregions) continue;
+    ret[region] = config.timezones[region];
+  }
+
+  return ret;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Misc utilities.
 
@@ -1142,8 +1167,8 @@ async function query_for_error_call(msg, handle, call_time, req, now = null) {
   if (!call_time && call_rows.length > 1) {
     return fail(msg,
       `Multiple times have been called for the raid at ${gym_name(gym)}.` +
-      `  Please include the time in your post (e.g., ` +
-      `\`$${req} ${handle} ${time_str_short(first.calls.time)} [...])\`.`
+      `  Please include the time in your post (e.g., \`$${req} ${handle} ` +
+      `${time_str_short(first.calls.time, gym.region)} [...])\`.`
     );
   }
 
@@ -1154,7 +1179,7 @@ async function query_for_error_call(msg, handle, call_time, req, now = null) {
   if (call_time && !call) {
     return fail(msg,
       `No raid at ${gym_name(gym)} has been called for ` +
-      `${time_str(call_time)}.`
+      `${time_str(call_time, gym.region)}.`
     );
   }
   return [call, gym];
@@ -1252,6 +1277,23 @@ function where_call_time(call_time, for_update = false) {
     '  AS calls_tmp' +
     '  WHERE raids.gym_id = calls_tmp.raid_id) = 1 '
   );
+}
+
+/*
+ * Get the region for the gym uniquely given by `handle'.
+ *
+ * If there is no such gym, return null.  This function never errors.
+ */
+async function select_region(handle) {
+  let [results, err] = await moltresdb.query(
+    'SELECT * FROM gyms WHERE ' + where_one_gym(handle)
+  );
+  if (err) return log_mysql_error(msg, err);
+
+  if (results.length !== 1) return null;
+  let [gym] = results;
+
+  return gym.region;
 }
 
 /*
@@ -1355,23 +1397,23 @@ function parse_hour_minute(time) {
 /*
  * Stringify a Date object according to our whims.
  */
-function date_str(date) {
+function date_str(date, region) {
   return date.toLocaleString('en-US', {
-    timeZone: 'America/New_York',
+    timeZone: tz_for_region[region] || config.tz_default,
     month: 'short',
     day: '2-digit',
   });
 }
-function time_str(date) {
+function time_str(date, region) {
   return date.toLocaleString('en-US', {
-    timeZone: 'America/New_York',
+    timeZone: tz_for_region[region] || config.tz_default,
     hour: 'numeric',
     minute: 'numeric',
     hour12: true,
   });
 }
-function time_str_short(date) {
-  let str = time_str(date);
+function time_str_short(date, region) {
+  let str = time_str(date, region);
   let pos = str.indexOf(' ');
   if (pos === -1) return str;
   return str.substr(0, pos);
@@ -1829,6 +1871,7 @@ function handle_reload_config(msg) {
   emoji_by_name = require('./emoji.js');
   config = require('./config.js');
   channels_for_region = compute_region_channel_map();
+  tz_for_region = compute_region_tz_map();
 
   return react_success(msg);
 }
@@ -2103,10 +2146,10 @@ function raid_report_notif(raid) {
 
   if (now < hatch) {
     return `${get_emoji('raidegg')} **T${raid.tier} egg** ` +
-           `hatches at ${gym_name(raid)} at ${time_str(hatch)}`;
+           `hatches at ${gym_name(raid)} at ${time_str(hatch, raid.region)}`;
   }
-  return `${get_emoji('boss')} **${fmt_tier_boss(raid)} raid** ` +
-         `despawns at ${gym_name(raid)} at ${time_str(raid.despawn)}`;
+  return `${get_emoji('boss')} **${fmt_tier_boss(raid)} raid** despawns ` +
+         `at ${gym_name(raid)} at ${time_str(raid.despawn, raid.region)}`;
 }
 
 /*
@@ -2174,11 +2217,11 @@ async function handle_raid(msg, handle) {
   if (now >= hatch) {
     output +=`
 raid: **${fmt_tier_boss(raids)}**
-despawn: ${time_str(raids.despawn)}`;
+despawn: ${time_str(raids.despawn, gyms.region)}`;
   } else {
     output +=`
 raid egg: **T${raids.tier}**
-hatch: ${time_str(hatch)}`;
+hatch: ${time_str(hatch, gyms.region)}`;
   }
 
   if (raids.team) {
@@ -2237,8 +2280,8 @@ hatch: ${time_str(hatch)}`;
           (caller_rsvp.extras !== 0 ? ` +${caller_rsvp.extras}` : '') +
           (attendees.length !== 0 ? ', ' : '');
       }
-      output += `\n- **${time_str(calls.time)}** (${total} raiders)—` +
-                `${caller_str}${attendees.join(', ')}`;
+      output += `\n- **${time_str(calls.time, gyms.region)}** ` +
+                `(${total} raiders)—${caller_str}${attendees.join(', ')}`;
     }
   }
 
@@ -2296,8 +2339,8 @@ async function handle_ls_raids(msg, tier, region) {
     let hatch = hatch_from_despawn(raids.despawn);
     let boss = hatch > now ? `T${raids.tier} egg` : fmt_tier_boss(raids);
     let timer_str = hatch > now
-      ? `hatches at ${time_str(hatch)}`
-      : `despawns at ${time_str(raids.despawn)}`
+      ? `hatches at ${time_str(hatch, gyms.region)}`
+      : `despawns at ${time_str(raids.despawn, gyms.region)}`
 
     output += `\n\`[${handle}]\` **${boss}** ${timer_str}`;
     if (is_meta) {
@@ -2306,7 +2349,7 @@ async function handle_ls_raids(msg, tier, region) {
 
     if (calls.time !== null && should_display_calls(msg)) {
       let times = rows_by_raid[handle]
-        .map(row => time_str(row.calls.time))
+        .map(row => time_str(row.calls.time, gyms.region))
         .join(', ');
       output += `\n\tcalled time(s): ${times}`;
     }
@@ -2532,13 +2575,12 @@ function delay_join_cache_clear(handle, call_time) {
 }
 
 /*
- * Set a timeout to ping raiders for `handle' `before' minutes before
- * `call_time'.
+ * Set a timeout to ping raiders for `gym' `before' minutes before `call_time'.
  */
-function set_raid_alarm(msg, handle, call_time, before = 7) {
+function set_raid_alarm(msg, gym, call_time, before = 7) {
   // This doesn't really belong here, but we set alarms every time we modify a
   // call time, which is exactly when we want to make this guarantee.
-  delay_join_cache_clear(handle, call_time);
+  delay_join_cache_clear(gym.handle, call_time);
 
   let alarm_time = new Date(call_time.getTime());
   alarm_time.setMinutes(alarm_time.getMinutes() - before);
@@ -2547,23 +2589,24 @@ function set_raid_alarm(msg, handle, call_time, before = 7) {
   if (delay <= 0) return;
 
   setTimeout(async function() {
-    let [row, raiders] = await get_all_raiders(msg, handle, call_time);
+    let [row, raiders] = await get_all_raiders(msg, gym.handle, call_time);
 
     // The call time might have changed, or everyone may have unjoined.
     if (row === null || raiders.length === 0) return;
 
     let output =
       `${gyaoo} ${get_emoji('alarm_clock')} ` +
-      `Raid call for ${gym_name(row.gyms)} ` +
-      `at \`${time_str(call_time)}\` is in ${before} minutes!` +
+      `Raid call for ${gym_name(gym)} at ` +
+      `\`${time_str(call_time, gym.region)}\` is in ${before} minutes!` +
       `\n\n${raiders.map(r => r.member.user).join(' ')} ` +
       `(${raiders.reduce((sum, r) => sum + 1 + r.extras, 0)} raiders)`;
 
-    return send_for_region(row.gyms.region, output);
+    return send_for_region(gym.region, output);
   }, delay);
 
   return log_impl(msg,
-    `Setting alarm for \`[${handle}]\` at \`${time_str(alarm_time)}\`.`
+    `Setting alarm for \`[${gym.handle}]\` at ` +
+    `\`${time_str(alarm_time, gym.region)}\` (server time).`
   );
 }
 
@@ -2590,12 +2633,7 @@ async function handle_call(msg, handle, call_time, extras) {
   if (extras instanceof InvalidArg) {
     return log_invalid(msg, `Invalid +1 count \`${extras.arg}\`.`);
   }
-  let time = time_str_short(call_time);
-
   let now = get_now();
-  if (call_time < now) {
-    return log_invalid(msg, `Can't call a time in the past \`${time}\`.`);
-  }
 
   extras = extras || 0;
 
@@ -2614,15 +2652,19 @@ async function handle_call(msg, handle, call_time, extras) {
     '   SELECT raids.gym_id, ?, ? FROM gyms INNER JOIN raids ' +
     '     ON gyms.id = raids.gym_id ' +
     '   WHERE ' + where_one_gym(handle) +
+    '     AND ? > ? ' +
     '     AND raids.despawn > ? ' +
     '     AND raids.despawn <= ? ',
-    [msg.author.id, call_time, call_time, later]
+    [msg.author.id, call_time, call_time, now, call_time, later]
   );
   if (err) {
     if (err.code === 'ER_DUP_ENTRY') {
+      let [, gym] = await query_for_error(msg, handle);
+      if (!gym) return; // should never happen
+
       return log_invalid(msg,
         `A raid has already been called for \`[${handle}]\` ` +
-        `at \`${time_str(call_time)}\`.`
+        `at \`${time_str(call_time, gym.region)}\`.`
       );
     }
     return log_mysql_error(msg, err);
@@ -2632,6 +2674,13 @@ async function handle_call(msg, handle, call_time, extras) {
     let [call_rows, gym] = await query_for_error(msg, handle);
     if (!gym) return;
 
+    if (call_time <= now) {
+      return log_invalid(msg,
+        `Cannot call a time in the past ` +
+        `\`${time_str_short(call_time, gym.region)}\`.`
+      );
+    }
+
     let [{raids}] = call_rows;
     if (raids.gym_id === null) {
       return log_invalid(msg,
@@ -2640,13 +2689,14 @@ async function handle_call(msg, handle, call_time, extras) {
     }
     if (call_time >= raids.despawn) {
       return log_invalid(msg,
-        `Cannot call a raid after despawn (${time_str(raids.despawn)}).`
+        `Cannot call a raid after despawn ` +
+        `(${time_str(raids.despawn, gym.region)}).`
       );
     }
     if (later < raids.despawn) {
       return log_invalid(msg,
         `Cannot call a raid before hatch ` +
-        `(${time_str(hatch_from_despawn(raids.despawn))}).`
+        `(${time_str(hatch_from_despawn(raids.despawn), gym.region)}).`
       );
     }
     return log_invalid(msg, 'An unknown error occurred.');
@@ -2689,13 +2739,14 @@ async function handle_call(msg, handle, call_time, extras) {
   let output = get_emoji('clock230') + ' ' +
     `${region_str} **${fmt_tier_boss(raid)}** raid ` +
     `at ${gym_name(raid)} ` +
-    `called for ${time_str(call_time)} by ${msg.author}.  ${gyaoo}` +
+    `called for ${time_str(call_time, raid.region)} ` +
+    `by ${msg.author}.  ${gyaoo}` +
     `\n\nTo join this raid time, enter ` +
-    `\`$join ${raid.handle} ${time}\`.`;
+    `\`$join ${raid.handle} ${time_str_short(call_time, raid.region)}\`.`;
 
   return Promise.all([
     send_for_region(raid.region, output),
-    set_raid_alarm(msg, raid.handle, call_time),
+    set_raid_alarm(msg, raid, call_time),
   ]);
 }
 
@@ -2738,7 +2789,7 @@ async function handle_cancel(msg, handle, call_time) {
     .filter(user => user.id != msg.author.id);
 
   let output = get_emoji('no_entry_sign') + ' ' +
-    `Raid at ${time_str(calls.time)} for ${gym_name(gyms)} ` +
+    `Raid at ${time_str(calls.time, gyms.region)} for ${gym_name(gyms)} ` +
     `was cancelled by ${msg.author}.  ${gyaoo}`;
 
   if (raiders.length !== 0) {
@@ -2789,13 +2840,14 @@ async function handle_change_time(msg, handle, current, to, desired) {
 
     if (desired >= raids.despawn) {
       return log_invalid(msg,
-        `Cannot change a time to after despawn (${time_str(raids.despawn)}).`
+        `Cannot change a time to after despawn ` +
+        `(${time_str(raids.despawn, gym.region)}).`
       );
     }
     if (later < raids.despawn) {
       return log_invalid(msg,
         `Cannot change a time to before hatch ` +
-        `(${time_str(hatch_from_despawn(raids.despawn))}).`
+        `(${time_str(hatch_from_despawn(raids.despawn), gym.region)}).`
       );
     }
 
@@ -2807,7 +2859,8 @@ async function handle_change_time(msg, handle, current, to, desired) {
   // No raiders is weird, but it could happen if everyone unjoins and
   // someone decides to change the raid time for no meaningful reason.
   if (row === null || raiders.length === 0) return;
-  handle = row.gyms.handle;
+  let {gyms} = row;
+  handle = gyms.handle;
 
   // Move the join message cache entry.
   join_cache_set(handle, desired, join_cache_get(handle, current));
@@ -2818,16 +2871,17 @@ async function handle_change_time(msg, handle, current, to, desired) {
     .filter(user => user.id != msg.author.id);
 
   let output =
-    `Raid time changed for ${gym_name(row.gyms)} ` +
-    `from ${time_str(current)} to ${time_str(desired)} ` +
+    `Raid time changed for ${gym_name(gyms)} ` +
+    `from ${time_str(current, gyms.region)} ` +
+    `to ${time_str(desired, gyms.region)} ` +
     `by ${msg.author}.  ${gyaoo}`;
 
   if (raiders.length !== 0) {
     output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
   }
   return Promise.all([
-    send_for_region(row.gyms.region, output),
-    set_raid_alarm(msg, handle, desired),
+    send_for_region(gyms.region, output),
+    set_raid_alarm(msg, gyms, desired),
   ]);
 }
 
@@ -2853,10 +2907,13 @@ async function handle_join(msg, handle, call_time, extras) {
   );
   if (err) {
     if (err.code === 'ER_DUP_ENTRY') {
+      let [, gym] = await query_for_error(msg, handle);
+      if (!gym) return; // should never happen
+
       return log_invalid(msg,
         `You have already joined the raid call for \`[${handle}]\`` +
         (!!call_time
-          ? ` at ${time_str(call_time)}.`
+          ? ` at ${time_str(call_time, gym.region)}.`
           : '.')
       );
     }
@@ -2864,7 +2921,7 @@ async function handle_join(msg, handle, call_time, extras) {
   }
 
   if (result.affectedRows === 0) {
-    let [call_row,] =
+    let [call_row, ] =
       await query_for_error_call(msg, handle, call_time, 'join');
     if (!call_row) return;
 
@@ -2881,24 +2938,24 @@ async function handle_join(msg, handle, call_time, extras) {
 
   raiders = raiders.filter(r => r.member.id != msg.author.id);
 
-  let joining_str = extras > 0 ? `joining with +${extras}` : 'joining';
+  let joining = extras > 0 ? `joining with +${extras}` : 'joining';
 
   let output = get_emoji('team') + '  ' +
-    `${msg.author} is ${joining_str} at ${time_str(calls.time)} ` +
+    `${msg.author} is ${joining} at ${time_str(calls.time, gyms.region)} ` +
     `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
 
   if (raiders.length !== 0) {
     let names = raiders.map(
       r => r.member.nickname || r.member.user.username
     );
-    output += ` (with ${names.join(', ')}).`;
+    output += ` (with ${raiders.length} others: ${names.join(', ')}).`;
   } else {
     output += '.';
   }
 
   output += '\n\nTo join this raid time, enter ';
   if (!!call_time) {
-    output += `\`$join ${handle} ${time_str_short(calls.time)}\`.`;
+    output += `\`$join ${handle} ${time_str_short(calls.time, gyms.region)}\`.`;
   } else {
     output += `\`$join ${handle}\`.`;
   }
@@ -2944,7 +3001,7 @@ async function handle_unjoin(msg, handle, call_time) {
     return log_invalid(msg,
       `You have not joined the raid call for ${gym_name(gym)}` +
       (!!call_time
-        ? ` at ${time_str(call_time)}.`
+        ? ` at ${time_str(call_time, gym.region)}.`
         : '.')
     );
   }
@@ -3262,8 +3319,11 @@ async function handle_exact(msg, time) {
   }
   let [, topic] = msg.channel.topic.match(ex_topic_capture);
 
+  let {handle} = ex_room_components(msg.channel.name);
+  let region = await select_region(handle);
+
   return Promise.all([
-    msg.channel.setTopic(`${topic} at ${time_str(time)}.`),
+    msg.channel.setTopic(`${topic} at ${time_str(time, region)}.`),
     react_success(msg),
   ]);
 }
@@ -3467,7 +3527,7 @@ async function process_request(msg) {
 
   let log = moltres.channels.get(config.log_id);
   let output = `\`\$${req_str}\` ${args}
-_Time:_  ${get_now().toLocaleString('en-US', {timeZone: 'America/New_York'})}
+_Time:_  ${get_now().toLocaleString('en-US')}
 _User:_  ${msg.author.tag}
 _Channel:_  #${from_dm(msg) ? '[dm]' : msg.channel.name}`;
 
