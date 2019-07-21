@@ -3,6 +3,7 @@
  */
 'use strict';
 
+const {DateTime, Duration, IANAZone, FixedOffsetZone} = require('luxon');
 const Discord = require('discord.js');
 const ed = require('edit-distance');
 const trie = require('trie-prefix-tree');
@@ -1353,11 +1354,7 @@ function parse_month_day(date) {
 }
 
 /*
- * Parse a time given by HH:MM as a Date object.
- *
- * This function uses rough heuristics to determine whether the user meant A.M.
- * or P.M., based on the assumption that the intent is always to represent the
- * most proximal time in the future.  Users can override this with `am`/`pm`.
+ * Parse a time given by HH:MM[am|pm].
  */
 function parse_hour_minute(time) {
   let matches = time.match(/^(\d{1,2})[:.](\d\d)([aApP][mM])?$/);
@@ -1367,7 +1364,44 @@ function parse_hour_minute(time) {
   [hours, mins] = [parseInt(hours), parseInt(mins)];
   if (hours >= 24 || mins >= 60) return null;
 
+  return {hours, mins, am_pm};
+}
+
+/*
+ * Take an object returned by parse_hour_minute() and convert to a Date object.
+ *
+ * This function uses rough heuristics to determine whether the user meant A.M.
+ * or P.M., based on the assumption that the intent is always to represent the
+ * most proximal time in the future.  Users can override this with `am`/`pm`.
+ */
+async function interpret_time(timespec, handle = null) {
+  if (timespec === null) return null;
+  let {hours, mins, am_pm} = timespec;
+
   let now = get_now();
+
+  let tz = await async function() {
+    // Use the default timezone if we have no region or no overrides.
+    if (handle === null) return config.tz_default;
+    if (Object.keys(tz_for_region).length === 0) return config.tz_default;
+
+    let region = await select_region(handle);
+    // If we failed to find a region for `handle', just use the default
+    // timezone.  This may not match the user's intentions, but some other
+    // failure is going to be reported anyway, so it doesn't matter.
+    if (region === null) return config.tz_default;
+
+    return tz_for_region[region] || config.tz_default;
+  }();
+
+  let offset_delta = function() {
+    let local_offset = -now.getTimezoneOffset();
+    let local_tz = FixedOffsetZone.instance(local_offset);
+    let remote_tz = IANAZone.create(tz);
+    let remote_offset = remote_tz.offset(now.getTime());
+
+    return (remote_offset - local_offset) / 60;
+  }();
 
   hours = function() {
     if (am_pm) {
@@ -1378,12 +1412,12 @@ function parse_hour_minute(time) {
     // 24-hour time; let the user use exactly that time.
     if (hours == 0 || hours >= 13) return hours;
     // Same or later morning hour.
-    if (hours >= now.getHours()) return hours;
+    if (hours >= now.getHours() + offset_delta) return hours;
     // Same or later afternoon hour if we interpret as P.M.
-    if (hours + 12 >= now.getHours()) return hours + 12;
+    if (hours + 12 >= now.getHours() + offset_delta) return hours + 12;
 
     return hours;
-  }();
+  }() - offset_delta;
 
   return new Date(
     now.getFullYear(),
@@ -1883,6 +1917,7 @@ async function handle_raidday(msg, boss, despawn) {
   if (despawn instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${despawn.arg}\`.`);
   }
+  despawn = await interpret_time(despawn);
 
   return moltresdb.query(
     'REPLACE INTO raids (`gym_id`, `tier`, `boss`,  `despawn`, `spotter`) ' +
@@ -2630,12 +2665,14 @@ async function handle_call(msg, handle, call_time, extras) {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
+  call_time = await interpret_time(call_time, handle);
+
   if (extras instanceof InvalidArg) {
     return log_invalid(msg, `Invalid +1 count \`${extras.arg}\`.`);
   }
-  let now = get_now();
-
   extras = extras || 0;
+
+  let now = get_now();
 
   // This is a janky way to allow for raids at exactly hatch.  The main
   // shortcoming is that if a raid's despawn is at an exact minute, this will
@@ -2754,6 +2791,7 @@ async function handle_cancel(msg, handle, call_time) {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
+  call_time = await interpret_time(call_time, handle);
 
   let fail = async function(msg) {
     let [call_row, gym] =
@@ -2764,7 +2802,7 @@ async function handle_cancel(msg, handle, call_time) {
       return log_invalid(msg, 'Raids can only be cancelled by their caller.');
     }
     return log_invalid(msg, 'An unknown error occurred.');
-  }
+  };
 
   let [row, raiders] = await get_all_raiders(msg, handle, call_time);
   if (row === null) return fail(msg);
@@ -2808,6 +2846,8 @@ async function handle_change_time(msg, handle, current, to, desired) {
   if (to !== 'to') {
     return log_invalid(msg, usage_string('change-time'));
   }
+  current = await interpret_time(current, handle);
+  desired = await interpret_time(desired, handle);
 
   // See comment in handle_call().
   let later = new Date(desired.getTime());
@@ -2889,10 +2929,11 @@ async function handle_join(msg, handle, call_time, extras) {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
+  call_time = await interpret_time(call_time, handle);
+
   if (extras instanceof InvalidArg) {
     return log_invalid(msg, `Invalid +1 count \`${extras.arg}\`.`);
   }
-
   extras = extras || 0;
 
   let [result, err] = await moltresdb.query(
@@ -2983,6 +3024,7 @@ async function handle_unjoin(msg, handle, call_time) {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
+  call_time = await interpret_time(call_time, handle);
 
   let [result, err] = await moltresdb.query(
     'DELETE rsvps FROM ' + full_join_table +
