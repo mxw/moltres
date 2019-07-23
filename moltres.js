@@ -3359,6 +3359,8 @@ async function handle_exact(msg, time) {
   if (time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${time.arg}\`.`);
   }
+  time = await interpret_time(time);
+
   let [, topic] = msg.channel.topic.match(ex_topic_capture);
 
   let {handle} = ex_room_components(msg.channel.name);
