@@ -2989,7 +2989,8 @@ async function handle_join(msg, handle, call_time, extras) {
     let names = raiders.map(
       r => r.member.nickname || r.member.user.username
     );
-    output += ` (with ${raiders.length} others: ${names.join(', ')}).`;
+    let others = raiders.length === 1 ? 'other' : 'others';
+    output += ` (with ${raiders.length} ${others}: ${names.join(', ')}).`;
   } else {
     output += '.';
   }
