@@ -1769,9 +1769,14 @@ async function handle_set_perm(msg, user_tag, req) {
   );
   if (err) {
     if (err.code === 'ER_DUP_ENTRY') {
-      return log_invalid(msg,
-        `Permission \`${req}\` for ${user} was already set.`
+      [result, err] = await moltresdb.query(
+        'DELETE FROM permissions WHERE ?',
+        { cmd: req,
+          user_id: user.id, }
       );
+      if (err) {
+        return log_mysql_error(msg, err);
+      }
     }
     return log_mysql_error(msg, err);
   }
