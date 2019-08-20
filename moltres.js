@@ -33,7 +33,6 @@ mysql.connect({
   password: config.dbpass,
   database: config.dbname || 'moltresdb',
   supportBigNumbers: true,
-  socketPath: '/var/run/mysqld/mysqld.sock',
   bigNumberStrings: true,
 })
 .then(res => {
