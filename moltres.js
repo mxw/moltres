@@ -620,8 +620,8 @@ const reqs = {
   'exclaim': {
     perms: Permission.BLACKLIST,
     access: Access.EX_ROOM,
-    usage: '',
-    args: [],
+    usage: '[message]',
+    args: [Arg.VARIADIC],
     desc: 'Ask Moltres to tag everyone in the room.',
     detail: [
       'Can only be used from EX raid rooms.  Please don\'t spam.',
@@ -3381,11 +3381,10 @@ async function handle_exact(msg, time) {
 async function handle_exclaim(msg) {
   let users = await ex_raiders(msg.channel);
   let tags = users.map(u => u.toString()).join(' ');
-  let content =
-    `${msg.author} used \`$exclaim\`!  It's super effective: ${tags}`;
+  let content = get_emoji('point_up') +
+    ` ${msg.author} used \`$exclaim\`!  It's super effective: ${tags}`;
 
-  await send_quiet(msg.channel, content);
-  return try_delete(msg);
+  return send_quiet(msg.channel, content);
 }
 
 function handle_expunge(msg, date) {

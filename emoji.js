@@ -11,6 +11,7 @@ module.exports = {
   gem: '💎',
   no_entry_sign: '🚫',
   no_good: '🙅',
+  point_up: '☝',
   potato: '🥔',
   pushpin: '📌',
   scorpion: '🦂',
