@@ -849,6 +849,7 @@ async function dm_quiet(user, content) {
     let dm = await user.createDM();
     return send_quiet(dm, content);
   } catch (e) {
+    log_impl(null, `Problem sending a DM to: ${user}`);
     console.error(e);
   }
 }
