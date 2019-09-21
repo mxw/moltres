@@ -3,6 +3,7 @@
  */
 module.exports = {
   alarm_clock: '⏰',
+  bug: '🐛',
   clock230: '🕝',
   cry: '😢',
   dash: '💨',
