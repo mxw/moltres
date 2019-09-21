@@ -2954,8 +2954,9 @@ async function handle_join(msg, handle, call_time, extras) {
     '       INNER JOIN raids ON gyms.id = raids.gym_id ' +
     '       INNER JOIN calls ON raids.gym_id = calls.raid_id ' +
     '   WHERE ' + where_one_gym(handle) +
+    '     AND raids.despawn > ? ' +
     '     AND ' + where_call_time(call_time),
-    [msg.author.id, extras, false]
+    [msg.author.id, extras, false, get_now()]
   );
   if (err) {
     if (err.code === 'ER_DUP_ENTRY') {
