@@ -149,9 +149,14 @@ const req_to_perm = {
   'gym':        'gym',
   'ls-gyms':    'gym',
   'search-gym': 'gym',
+  'raid':       'raid',
+  'ls-raids':   'raid',
   'egg':    'report',
   'boss':   'report',
   'update': 'report',
+  'call':        'call',
+  'cancel':      'call',
+  'change-time': 'call',
 };
 
 const reqs = {
