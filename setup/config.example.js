@@ -26,6 +26,10 @@ module.exports = {
     return msg.channel.type !== 'dm';
   },
 
+  // How long in minutes before a raid begins should Moltres send an alarm
+  // message?  To omit the alarm, set to null.
+  raid_alarm: 7,
+
   // Map from Discord IDs of text channels Moltres watches to arrays of region
   // or metaregion names whose raid activities should be posted to the channel.
   channels: {
@@ -103,6 +107,7 @@ module.exports = {
     approved: '✅',
     banned: '⛔',
     dealwithit: '🕶',
+    rollsafe: 'valor',
     team: 'valor',
     valor: 'valor',
     mystic: 'mystic',

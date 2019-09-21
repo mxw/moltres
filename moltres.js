@@ -2621,33 +2621,53 @@ function delay_join_cache_clear(handle, call_time) {
 }
 
 /*
- * Set a timeout to ping raiders for `gym' `before' minutes before `call_time'.
+ * Make the raid alarm message.
  */
-function set_raid_alarm(msg, gym, call_time, before = 7) {
+async function make_raid_alarm(msg, gym, call_time) {
+  if (!config.raid_alarm) return null;
+
+  let [row, raiders] = await get_all_raiders(msg, gym.handle, call_time);
+
+  // The call time might have changed, or everyone may have unjoined.
+  if (row === null || raiders.length === 0) return null;
+
+  let output =
+    `${gyaoo} ${get_emoji('alarm_clock')} ` +
+    `Raid call for ${gym_name(gym)} at ` +
+    `\`${time_str(call_time, gym.region)}\` is in ` +
+    `${config.raid_alarm} minutes!` +
+    `\n\n${raiders.map(r => r.member.user).join(' ')} ` +
+    `(${raiders.reduce((sum, r) => sum + 1 + r.extras, 0)} raiders)`;
+
+  return output;
+}
+
+/*
+ * Set a timeout to ping raiders for `gym' before `call_time'.
+ */
+function set_raid_alarm(msg, gym, call_time) {
   // This doesn't really belong here, but we set alarms every time we modify a
   // call time, which is exactly when we want to make this guarantee.
   delay_join_cache_clear(gym.handle, call_time);
 
   let alarm_time = new Date(call_time.getTime());
-  alarm_time.setMinutes(alarm_time.getMinutes() - before);
+  alarm_time.setMinutes(alarm_time.getMinutes() - config.raid_alarm);
 
   let delay = alarm_time - get_now();
   if (delay <= 0) return;
 
   setTimeout(async function() {
-    let [row, raiders] = await get_all_raiders(msg, gym.handle, call_time);
+    let output = await make_raid_alarm(msg, gym, call_time);
+    let alarm_msgs = await send_for_region(gym.region, output);
 
-    // The call time might have changed, or everyone may have unjoined.
-    if (row === null || raiders.length === 0) return;
+    // The join cache might not have been populated if nobody else joined...
+    let j_ent = join_cache_get(gym.handle, call_time);
+    if (!j_ent) return;
 
-    let output =
-      `${gyaoo} ${get_emoji('alarm_clock')} ` +
-      `Raid call for ${gym_name(gym)} at ` +
-      `\`${time_str(call_time, gym.region)}\` is in ${before} minutes!` +
-      `\n\n${raiders.map(r => r.member.user).join(' ')} ` +
-      `(${raiders.reduce((sum, r) => sum + 1 + r.extras, 0)} raiders)`;
-
-    return send_for_region(gym.region, output);
+    join_cache_set(gym.handle, call_time, {
+      joins: j_ent.joins,
+      alarms: alarm_msgs,
+    });
   }, delay);
 
   return log_impl(msg,
@@ -2658,15 +2678,17 @@ function set_raid_alarm(msg, gym, call_time, before = 7) {
 
 /*
  * Cache for join messages.
+ *
+ * Maps a handle+time string to a {joins: [msgs], alarms: [msgs]}.
  */
 let join_cache = {};
 
 function join_cache_get(handle, time) {
   return join_cache[handle + time.getTime()];
 }
-function join_cache_set(handle, time, messages) {
-  if (messages) {
-    join_cache[handle + time.getTime()] = messages;
+function join_cache_set(handle, time, val) {
+  if (val) {
+    join_cache[handle + time.getTime()] = val;
   } else {
     delete join_cache[handle + time.getTime()];
   }
@@ -3017,11 +3039,28 @@ async function handle_join(msg, handle, call_time, extras) {
   let join_msgs = await send_for_region(gyms.region, output);
 
   // Clear any existing join message for this raid.
-  let replace_prev_msg = function() {
+  let replace_prev_msg = async function() {
     let prev = join_cache_get(handle, calls.time);
-    join_cache_set(handle, calls.time, join_msgs);
+    join_cache_set(handle, calls.time, {
+      joins: join_msgs,
+      alarms: prev ? prev.alarms : [],
+    });
     if (prev) {
-      return Promise.all(prev.map(join => try_delete(join)));
+      let dels = prev.joins.map(join => try_delete(join));
+      if (prev.alarms.length === 0) return dels;
+
+      // If it's past the alarm time, we want to edit the alarm messages...
+      let content = await make_raid_alarm(msg, gyms, calls.time);
+      let edits = prev.alarms.map(alarm => alarm.edit(content));
+
+      // ...and DM the raid caller.
+      let caller = await moltres.fetchUser(calls.caller);
+      let dms = [dm_quiet(caller,
+        `${get_emoji('rollsafe')} ${msg.author} has joined the raid late at ` +
+        `${gym_name(gyms)} at ${time_str(calls.time, gyms.region)}.`
+      )];
+
+      return Promise.all(dms.concat(dels).concat(edits));
     }
   };
 
