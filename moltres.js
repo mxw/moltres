@@ -3024,7 +3024,13 @@ async function handle_join(msg, handle, call_time, extras) {
       r => r.member.nickname || r.member.user.username
     );
     let others = raiders.length === 1 ? 'other' : 'others';
-    output += ` (with ${raiders.length} ${others}: ${names.join(', ')}).`;
+    output += ` (with ${raiders.length} ${others}: `;
+    if ((calls.time-get_now())<=420000) {
+      // If raid is within 7 minute call time, tag joined users
+      output += `${raiders.map(r => r.member.user).join(' ')}).`;
+    } else {
+      output += `${names.join(', ')}).`;
+    }
   } else {
     output += '.';
   }
