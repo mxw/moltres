@@ -2611,6 +2611,14 @@ async function get_all_raiders(msg, handle, time) {
 }
 
 /*
+ * Return the number of raiders (including +1's) from a raiders array, like
+ * that returned by get_all_raiders().
+ */
+function count_raiders(raiders) {
+  return raiders.reduce((sum, r) => sum + 1 + r.extras, 0);
+}
+
+/*
  * Set a delayed event for clearing the join cache for `handle' at `call_time'.
  */
 function delay_join_cache_clear(handle, call_time) {
@@ -2637,7 +2645,7 @@ async function make_raid_alarm(msg, gym, call_time) {
     `\`${time_str(call_time, gym.region)}\` is in ` +
     `${config.raid_alarm} minutes!` +
     `\n\n${raiders.map(r => r.member.user).join(' ')} ` +
-    `(${raiders.reduce((sum, r) => sum + 1 + r.extras, 0)} raiders)`;
+    `(${count_raiders(raiders)} raiders)`;
 
   return output;
 }
@@ -3023,8 +3031,9 @@ async function handle_join(msg, handle, call_time, extras) {
     let names = raiders.map(
       r => r.member.nickname || r.member.user.username
     );
-    let others = raiders.length === 1 ? 'other' : 'others';
-    output += ` (with ${raiders.length} ${others}: ${names.join(', ')}).`;
+    let num_raiders = count_raiders(raiders);
+    let others = num_raiders === 1 ? 'other' : 'others';
+    output += ` (with ${num_raiders} ${others}: ${names.join(', ')}).`;
   } else {
     output += '.';
   }
