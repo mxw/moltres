@@ -10,6 +10,7 @@ module.exports = {
   door: '🚪',
   dragon: '🐉',
   gem: '💎',
+  ghost: '👻',
   no_entry_sign: '🚫',
   no_good: '🙅',
   point_up: '☝',
