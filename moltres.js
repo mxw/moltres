@@ -3056,8 +3056,8 @@ async function handle_join(msg, handle, call_time, extras) {
       // ...and DM the raid caller.
       let caller = await moltres.fetchUser(calls.caller);
       let dms = [dm_quiet(caller,
-        `${get_emoji('rollsafe')} ${msg.author} has joined the raid late at ` +
-        `${gym_name(gyms)} at ${time_str(calls.time, gyms.region)}.`
+        `${get_emoji('rollsafe')} ${msg.author.tag} has joined the raid late ` +
+        `at ${gym_name(gyms)} at ${time_str(calls.time, gyms.region)}.`
       )];
 
       return Promise.all(dms.concat(dels).concat(edits));
