@@ -19,6 +19,7 @@ module.exports = {
   scorpion: '🦂',
   upside_down: '🙃',
   thinking: '🤔',
+  turkey: '🦃',
   walking: '🚶',
   whale: '🐳',
 };
