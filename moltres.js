@@ -134,7 +134,7 @@ const InvalidArg = utils.InvalidArg;
 const req_order = [
   'help', null,
   'set-perm', 'ls-perms', 'add-boss', 'rm-boss', 'def-boss', null,
-  'add-gym', 'edit-gym', null,
+  'add-gym', 'edit-gym', 'mv-gym', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', 'ls-bosses', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', null,
@@ -149,6 +149,7 @@ const req_to_perm = {
   'def-boss': 'boss-table',
   'add-gym':  'gym-table',
   'edit-gym': 'gym-table',
+  'mv-gym':   'gym-table',
   'gym':        'gym',
   'ls-gyms':    'gym',
   'search-gym': 'gym',
@@ -241,6 +242,54 @@ const reqs = {
     },
   },
 
+  'add-gym': {
+    perms: Permission.WHITELIST,
+    access: Access.REGION,
+    usage: '<gym-handle> <region> <lat> <lng> <name>',
+    args: [Arg.STR, Arg.STR, Arg.STR, Arg.STR, Arg.VARIADIC],
+    desc: 'Add a new gym to the database.',
+    detail: [
+      'The region name can be any string, but it must be free of whitespace. ',
+      'Hyphens in the region name will be replaced by spaces.  Note also that',
+      'no verification is performed to check that a region name matches that',
+      'of any existing region, so make sure you use the right capitalization',
+      'and avoid typos.\n\nThe recommended method for adding gyms is to copy',
+      'information over from <http://www.massmwcreaturemap.com/>.  Note that',
+      'the latitude argument is allowed to contain a trailing comma, for ease',
+      'of copying.',
+    ],
+    examples: {
+      'harbor In-the-Ocean 42.3571413, -71.0418669 Spoofer Trap':
+        'Add the `[harbor]` **Spoofer Trap** gym at the given coordinates ' +
+        'to the "In the Ocean" region.',
+    },
+  },
+  'edit-gym': {
+    perms: Permission.WHITELIST,
+    access: Access.REGION,
+    usage: '<gym-handle> <region> <lat> <lng> <name>',
+    args: [Arg.STR, Arg.STR, Arg.STR, Arg.STR, Arg.VARIADIC],
+    desc: 'Edit a gym entry in the database.',
+    detail: [
+      'Like `$add-gym`, but overwrites an existing entry.  The gym handle',
+      'cannot be edited.',
+    ],
+    examples: {
+    },
+  },
+  'mv-gym': {
+    perms: Permission.WHITELIST,
+    access: Access.REGION,
+    usage: '<current-handle> <new-handle>',
+    args: [Arg.STR, Arg.STR],
+    desc: 'Change the short-name handle for an existing gym.',
+    detail: [
+    ],
+    examples: {
+      'test test2': 'Rename the gym `test` to `test2`.',
+    },
+  },
+
   'reload-config': {
     perms: Permission.ADMIN,
     access: Access.ALL,
@@ -324,41 +373,6 @@ const reqs = {
     examples: {
       'sprint': 'List all Sprint store gyms (or other gyms with "sprint" ' +
                 'in the name).',
-    },
-  },
-  'add-gym': {
-    perms: Permission.WHITELIST,
-    access: Access.REGION,
-    usage: '<gym-handle> <region> <lat> <lng> <name>',
-    args: [Arg.STR, Arg.STR, Arg.STR, Arg.STR, Arg.VARIADIC],
-    desc: 'Add a new gym to the database.',
-    detail: [
-      'The region name can be any string, but it must be free of whitespace. ',
-      'Hyphens in the region name will be replaced by spaces.  Note also that',
-      'no verification is performed to check that a region name matches that',
-      'of any existing region, so make sure you use the right capitalization',
-      'and avoid typos.\n\nThe recommended method for adding gyms is to copy',
-      'information over from <http://www.massmwcreaturemap.com/>.  Note that',
-      'the latitude argument is allowed to contain a trailing comma, for ease',
-      'of copying.',
-    ],
-    examples: {
-      'harbor In-the-Ocean 42.3571413, -71.0418669 Spoofer Trap':
-        'Add the `[harbor]` **Spoofer Trap** gym at the given coordinates ' +
-        'to the "In the Ocean" region.',
-    },
-  },
-  'edit-gym': {
-    perms: Permission.WHITELIST,
-    access: Access.REGION,
-    usage: '<gym-handle> <region> <lat> <lng> <name>',
-    args: [Arg.STR, Arg.STR, Arg.STR, Arg.STR, Arg.VARIADIC],
-    desc: 'Edit a gym entry in the database.',
-    detail: [
-      'Like `$add-gym`, but overwrites an existing entry.  The gym handle',
-      'cannot be edited.',
-    ],
-    examples: {
     },
   },
   'ls-regions': {
@@ -2117,7 +2131,10 @@ async function handle_search_gym(msg, name) {
   return send_quiet(msg.channel, output);
 }
 
-function process_gym_params(handle, region, lat, lng, name) {
+/*
+ * Preprocess inputs for $add-gym and $edit-gym.
+ */
+function fixup_gym_params(handle, region, lat, lng, name) {
   return {
     handle: handle.toLowerCase(),
     name: name,
@@ -2127,13 +2144,10 @@ function process_gym_params(handle, region, lat, lng, name) {
   };
 }
 
-async function handle_add_gym(msg, ...params) {
-  let assignment = process_gym_params(...params);
-
-  let [result, err] = await moltresdb.query(
-    'INSERT INTO gyms SET ?',
-    assignment
-  );
+/*
+ * Shared error handling for gym table mutations.
+ */
+function log_gym_table_error(msg, result, err) {
   if (err) return log_mysql_error(msg, err);
 
   if (result.affectedRows === 0) {
@@ -2142,20 +2156,36 @@ async function handle_add_gym(msg, ...params) {
   return react_success(msg);
 }
 
+async function handle_add_gym(msg, ...params) {
+  let assignment = fixup_gym_params(...params);
+
+  let [result, err] = await moltresdb.query(
+    'INSERT INTO gyms SET ?',
+    assignment
+  );
+  return log_gym_table_error(msg, result, err);
+}
+
 async function handle_edit_gym(msg, handle, ...params) {
-  let assignment = process_gym_params(handle, ...params);
+  let assignment = fixup_gym_params(handle, ...params);
   delete assignment.handle;
 
   let [result, err] = await moltresdb.query(
     'UPDATE gyms SET ? WHERE handle = ?',
     [assignment, handle.toLowerCase()]
   );
-  if (err) return log_mysql_error(msg, err);
+  return log_gym_table_error(msg, result, err);
+}
 
-  if (result.affectedRows === 0) {
-    return log_invalid(msg, 'Unknown failure.');
-  }
-  return react_success(msg);
+async function handle_mv_gym(msg, old_handle, new_handle) {
+  old_handle = old_handle.toLowerCase();
+  new_handle = new_handle.toLowerCase();
+
+  let [result, err] = await moltresdb.query(
+    'UPDATE gyms SET handle = ? WHERE handle = ?',
+    [new_handle, old_handle]
+  );
+  return log_gym_table_error(msg, result, err);
 }
 
 async function handle_ls_regions(msg) {
@@ -3574,6 +3604,7 @@ async function handle_request(msg, request, mods, argv) {
 
     case 'add-gym':   return handle_add_gym(msg, ...argv);
     case 'edit-gym':  return handle_edit_gym(msg, ...argv);
+    case 'mv-gym':    return handle_mv_gym(msg, ...argv);
 
     case 'gym':       return handle_gym(msg, ...argv);
     case 'ls-gyms':   return handle_ls_gyms(msg, ...argv);
