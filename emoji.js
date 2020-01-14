@@ -20,6 +20,7 @@ module.exports = {
   upside_down: '🙃',
   thinking: '🤔',
   turkey: '🦃',
+  volcano: '🌋',
   walking: '🚶',
   whale: '🐳',
 };
