@@ -2305,18 +2305,7 @@ async function handle_raid(msg, handle) {
   let [{gyms, raids, calls}] = results;
 
   if (raids.despawn < now) {
-    // Clean up expired raids.
-    let gen_cleanup = async() => {
-      let [result, err] = await moltresdb.query(
-        'DELETE FROM raids WHERE gym_id = ?',
-        [raids.gym_id]
-      );
-      if (err) return log_mysql_error(msg, err);
-    };
-    return Promise.all([
-      gen_cleanup(),
-      chain_reaccs(msg, 'no_entry_sign', 'raidegg'),
-    ]);
+    return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
   }
 
   let hatch = hatch_from_despawn(raids.despawn);
@@ -2484,12 +2473,13 @@ async function handle_report(msg, handle, tier, boss, timer, mods) {
 
   let egg_adjust = boss === null ? boss_duration : 0;
 
-  let despawn = get_now();
+  let now = get_now();
+  let despawn = now;
   despawn.setMinutes(despawn.getMinutes() + timer.mins + egg_adjust);
   despawn.setSeconds(despawn.getSeconds() + timer.secs);
 
-  let pop = pop_from_despawn(despawn);
-  pop.setMinutes(pop.getMinutes() + 1);
+  let hatch = hatch_from_despawn(despawn);
+  hatch.setMinutes(hatch.getMinutes() + 1);
 
   let [result, err] = await moltresdb.query(
     'REPLACE INTO raids (gym_id, tier, boss, despawn, spotter) ' +
@@ -2500,10 +2490,10 @@ async function handle_report(msg, handle, tier, boss, timer, mods) {
       '   NOT EXISTS ( ' +
       '     SELECT * FROM raids ' +
       '       WHERE gym_id = gyms.id ' +
-      '       AND despawn > ? ' +
+      '       AND (despawn > ? OR despawn > ?) ' +
       '   ) '
     ),
-    [tier, boss, despawn, msg.author.id, pop]
+    [tier, boss, despawn, msg.author.id, hatch, now]
   );
   if (err) return log_mysql_error(msg, err);
 
