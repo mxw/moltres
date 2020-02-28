@@ -2489,6 +2489,7 @@ async function handle_report(msg, handle, tier, boss, timer, mods) {
   despawn.setSeconds(despawn.getSeconds() + timer.secs);
 
   let pop = pop_from_despawn(despawn);
+  pop.setMinutes(pop.getMinutes() + 1);
 
   let [result, err] = await moltresdb.query(
     'REPLACE INTO raids (gym_id, tier, boss, despawn, spotter) ' +
