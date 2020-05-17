@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const mysql = require('mysql');
+const mysql = require('mysql2');
 
 function AsyncConnection(conn) {
   this.conn = conn;

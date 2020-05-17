@@ -3,12 +3,13 @@
  */
 'use strict';
 
-const {DateTime, Duration, IANAZone, FixedOffsetZone} = require('luxon');
 const Discord = require('discord.js');
+const mysql = require('./async-mysql.js');
+const {DateTime, Duration, IANAZone, FixedOffsetZone} = require('luxon');
+
 const ed = require('edit-distance');
 const trie = require('trie-prefix-tree');
 
-const mysql = require('./async-mysql.js');
 const utils = require('./utils.js');
 
 let emoji_by_name = require('./emoji.js');
