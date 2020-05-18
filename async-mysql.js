@@ -3,56 +3,51 @@
  */
 'use strict';
 
-const mysql = require('mysql2');
+const mysql = require('mysql2/promise');
 
-function AsyncConnection(conn) {
-  this.conn = conn;
+class AsyncConnection {
+  constructor(conn, config) {
+    this.conn = conn;
+    this.config = config;
+  }
+
+  static async create(config) {
+    const conn = await mysql.createConnection(config);
+    return new AsyncConnection(conn, config);
+  }
+
+  /*
+   * Query the MySQL connection, and return a [result, error] tuple.
+   *
+   * As with mysqljs, we pass errors directly back to the client rather than
+   * throwing exceptions, in the expectation that query failures are sometimes
+   * non-exceptional conditions.
+   */
+  async query(...args) {
+    try {
+      const [result] = await this.conn.query(...args);
+      return [result, null];
+    } catch (err) {
+      if (err.code !== 'EPIPE' &&
+          err.code !== 'PROTOCOL_CONNECTION_LOST') {
+        return [null, err];
+      }
+      try {
+        this.conn = await mysql.createConnection(this.config);
+      } catch (_) {
+        return [null, err];
+      }
+      return this.query(...args);
+    }
+  }
+
+  /*
+   * Gracefully close the connection, throwing an Error or resolving nullish.
+   */
+  end() { return this.conn.end(); }
 }
 
-/*
- * Query the MySQL connection, and return a [result, error] tuple.
- *
- * As with mysqljs, we pass errors directly back to the client rather than
- * throwing exceptions, in the expectation that query failures are sometimes
- * non-exceptional conditions.
- */
-AsyncConnection.prototype.query = function(...args) {
-  return new Promise((resolve, reject) => {
-    this.conn.query(...args, function (err, result) {
-      resolve([result, err]);
-    });
-  });
-};
-
-/*
- * Gracefully close the connection, throwing an Error or resolving nullish.
- */
-AsyncConnection.prototype.end = function() {
-  return new Promise((resolve, reject) => {
-    this.conn.end(function (err) {
-      if (err) {
-        reject(err);
-      } else {
-        resolve();
-      }
-    });
-  });
-};
-
 module.exports = {
-  connect: function (config) {
-    return new Promise((resolve, reject) => {
-      let conn = mysql.createConnection(config);
-
-      conn.connect(err => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(new AsyncConnection(conn));
-        }
-      });
-    });
-  },
-
+  connect: AsyncConnection.create,
   format: mysql.format,
 };
