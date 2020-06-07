@@ -2919,7 +2919,7 @@ async function handle_cancel(msg, handle, call_time) {
 
   raiders = raiders
     .map(r => r.member.user)
-    .filter(user => user.id != msg.author.id);
+    .filter(user => user.id !== msg.author.id);
 
   let output = get_emoji('no_entry_sign') + ' ' +
     `Raid at ${time_str(calls.time, gyms.region)} for ${gym_name(gyms)} ` +
@@ -3003,7 +3003,7 @@ async function handle_change_time(msg, handle, current, to, desired) {
 
   raiders = raiders
     .map(r => r.member.user)
-    .filter(user => user.id != msg.author.id);
+    .filter(user => user.id !== msg.author.id);
 
   let output =
     `Raid time changed for ${gym_name(gyms)} ` +
@@ -3073,7 +3073,7 @@ async function handle_join(msg, handle, call_time, extras) {
   let {gyms, raids, calls} = row;
   handle = gyms.handle;
 
-  raiders = raiders.filter(r => r.member.id != msg.author.id);
+  raiders = raiders.filter(r => r.member.id !== msg.author.id);
 
   let joining = extras > 0 ? `joining with +${extras}` : 'joining';
 
