@@ -138,7 +138,7 @@ const req_order = [
   'add-gym', 'edit-gym', 'mv-gym', null,
   'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', 'ls-bosses', null,
-  'call', 'cancel', 'change-time', 'join', 'unjoin', null,
+  'call', 'cancel', 'change-time', 'join', 'unjoin', 'ping', null,
   'ex', 'exit', 'examine', 'exact', 'exclaim', 'explore', 'expunge', 'exalt',
 ];
 
@@ -596,6 +596,22 @@ const reqs = {
       'galaxy': 'Unjoin the raid at **Galaxy: Earth Sphere**.  This ' +
                 'only works if there is only a single called time.',
       'galaxy 1:42': 'Unjoin the 1:42 p.m. raid at **Galaxy: Earth Sphere**.',
+    },
+  },
+  'ping': {
+    perms: Permission.NONE,
+    access: Access.REGION,
+    usage: '<gym-handle-or-name> [HH:MM]',
+    args: [Arg.VARIADIC, -Arg.HOURMIN],
+    desc: 'Mention everyone attending a raid.',
+    detail: [
+      'As with `$join`, you don\'t need to specify the time _unless_ the',
+      'raid has multiple called times, in which case you do.',
+    ],
+    examples: {
+      'galaxy': 'Ping attendees of the raid at **Galaxy: Earth Sphere**.  ' +
+                'This only works if there is only a single called time.',
+      'galaxy 1:42': 'Ping the 1:42 p.m. raiders at **Galaxy: Earth Sphere**.',
     },
   },
 
@@ -3165,6 +3181,33 @@ async function handle_unjoin(msg, handle, call_time) {
   return react_success(msg, 'cry');
 }
 
+async function handle_ping(msg, handle, call_time) {
+  if (call_time instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
+  }
+  call_time = await interpret_time(call_time, handle);
+
+  let [row, raiders] = await get_all_raiders(msg, handle, call_time);
+  if (row === null) {
+    return query_for_error_call(msg, handle, call_time, 'ping');
+  }
+  let {gyms, raids, calls} = row;
+
+  let tags = raiders
+    .filter(r => r.member.user.id !== msg.author.id)
+    .map(r => r.member.user.toString())
+    .join(' ');
+
+  let content = get_emoji('point_up') +
+    ` Ping from ${msg.author} about the ${gym_name(gyms)} raid` +
+    ` at ${time_str(calls.time, gyms.region)}: ${tags}`;
+
+  return Promise.all([
+    send_quiet(msg.channel, content),
+    try_delete(msg),
+  ]);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // EX raid handlers.
 
@@ -3616,6 +3659,7 @@ async function handle_request(msg, request, mods, argv) {
     case 'change-time': return handle_change_time(msg, ...argv);
     case 'join':      return handle_join(msg, ...argv);
     case 'unjoin':    return handle_unjoin(msg, ...argv);
+    case 'ping':      return handle_ping(msg, ...argv);
 
     case 'ex':        return handle_ex(msg, ...argv);
     case 'exit':      return handle_exit(msg, ...argv);
