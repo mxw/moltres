@@ -136,7 +136,7 @@ const req_order = [
   'help', null,
   'set-perm', 'ls-perms', 'add-boss', 'rm-boss', 'def-boss', null,
   'add-gym', 'edit-gym', 'mv-gym', null,
-  'gym', 'ls-gyms', 'search-gym', 'ls-regions', null,
+  'gym', 'ls-gyms', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', 'ls-bosses', null,
   'call', 'cancel', 'change-time', 'join', 'unjoin', 'ping', null,
   'ex', 'exit', 'examine', 'exact', 'exclaim', 'explore', 'expunge', 'exalt',
@@ -153,7 +153,6 @@ const req_to_perm = {
   'mv-gym':   'gym-table',
   'gym':        'gym',
   'ls-gyms':    'gym',
-  'search-gym': 'gym',
   'raid':       'raid',
   'ls-raids':   'raid',
   'egg':    'report',
@@ -334,9 +333,8 @@ const reqs = {
     detail: [
       'A gym handle is something like `jh-john-harvard` or `newtowne`.',
       'You can use partial substring matches (like `jh` or even `ohn-harv`)',
-      'as long as they don\'t match another gym.\n\nUse `$ls-gyms <region>`',
-      'if you want to see all the gym handles (but they should be what you',
-      'expect).',
+      'as long as they don\'t match another gym.\n\nIf more than one gym',
+      'matches, the list of matches is displayed.',
     ],
     examples: {
       'galaxy-sph': 'Get information about **Galaxy: Earth Sphere**.',
@@ -359,21 +357,6 @@ const reqs = {
       'boston c': 'List gyms in Boston Common/Garden.',
       'boston-common': 'Same as above.',
       'boston': 'Error; ambiguous region name.',
-    },
-  },
-  'search-gym': {
-    perms: Permission.NONE,
-    access: Access.ALL,
-    usage: '<partial-handle-or-name>',
-    args: [Arg.VARIADIC],
-    desc: 'Search for gyms matching a name fragment.',
-    detail: [
-      'This will find all gyms with handles _and_ in-game names matching the',
-      'search term.',
-    ],
-    examples: {
-      'sprint': 'List all Sprint store gyms (or other gyms with "sprint" ' +
-                'in the name).',
     },
   },
   'ls-regions': {
@@ -726,9 +709,6 @@ const req_aliases = {
   'b':            'boss',
   'u':            'update',
   'regions':      'ls-regions',
-  'search':       'search-gym',
-  'search-gyms':  'search-gym',
-  's':            'search-gym',
   'call-time':    'call',
   'uncall':       'cancel',
   'j':            'join',
@@ -2092,17 +2072,32 @@ function list_gyms(gyms, incl_region = true, is_valid = null) {
   return output.join('\n');
 }
 
-async function handle_gym(msg, handle) {
+async function handle_gym(msg, name) {
   let [results, err] = await moltresdb.query(
-    'SELECT * FROM gyms WHERE ' + where_one_gym(handle)
+    'SELECT * FROM gyms WHERE ' + where_one_gym(name)
   );
   if (err) return log_mysql_error(msg, err);
 
-  let found_one = await check_one_gym(msg, handle, results);
-  if (!found_one) return;
-  let [gym] = results;
+  if (results.length === 1) {
+    let [gym] = results;
+    return send_quiet(msg.channel, gym_row_to_string(gym));
+  }
 
-  return send_quiet(msg.channel, gym_row_to_string(gym));
+  let handle = name.replace(/ /g, '-');
+
+  [results, err] = await moltresdb.query(
+    'SELECT * FROM gyms WHERE handle LIKE ? OR name LIKE ?',
+    [`%${handle}%`, `%${name}%`]
+  );
+  if (err) return log_mysql_error(msg, err);
+
+  if (results.length === 0) {
+    return send_quiet(msg.channel,
+      `No gyms with handle or name matching ${name}.`
+    );
+  }
+  let output = `Gyms matching \`${name}\`:\n\n` + list_gyms(results);
+  return send_quiet(msg.channel, output);
 }
 
 async function handle_ls_gyms(msg, region) {
@@ -2131,21 +2126,6 @@ async function handle_ls_gyms(msg, region) {
 }
 
 async function handle_search_gym(msg, name) {
-  let handle = name.replace(/ /g, '-');
-
-  let [results, err] = await moltresdb.query(
-    'SELECT * FROM gyms WHERE handle LIKE ? OR name LIKE ?',
-    [`%${handle}%`, `%${name}%`]
-  );
-  if (err) return log_mysql_error(msg, err);
-
-  if (results.length === 0) {
-    return send_quiet(msg.channel,
-      `No gyms with handle or name matching ${name}.`
-    );
-  }
-  let output = `Gyms matching \`${name}\`:\n\n` + list_gyms(results);
-  return send_quiet(msg.channel, output);
 }
 
 /*
@@ -3643,7 +3623,6 @@ async function handle_request(msg, request, mods, argv) {
 
     case 'gym':       return handle_gym(msg, ...argv);
     case 'ls-gyms':   return handle_ls_gyms(msg, ...argv);
-    case 'search-gym':  return handle_search_gym(msg, ...argv);
     case 'ls-regions':  return handle_ls_regions(msg, ...argv);
 
     case 'raid':      return handle_raid(msg, ...argv);
