@@ -821,7 +821,7 @@ function capitalize(str) {
  * Get the main guild for bot requests.
  */
 function guild() {
-  return moltres.guilds.get(config.guild_id);
+  return moltres.guilds.cache.get(config.guild_id);
 }
 
 /*
@@ -893,8 +893,8 @@ function send_for_region(region, content) {
   let channels = channels_for_region[region];
   if (!channels) return;
 
-  return Promise.all(channels.map(chan_id => {
-    let chan = moltres.channels.get(chan_id);
+  return Promise.all(channels.map(async (chan_id) => {
+    let chan = await moltres.channels.fetch(chan_id);
     return send_quiet(chan, content);
   }));
 }
@@ -905,7 +905,7 @@ function send_for_region(region, content) {
 async function try_delete(msg, wait = 0) {
   if (from_dm(msg)) return;
   try {
-    await msg.delete(wait);
+    await msg.delete({timeout: wait});
   } catch (e) {
     console.error(e);
   }
@@ -920,19 +920,12 @@ async function dm_reply_then_delete(msg, content, wait = 500) {
 }
 
 /*
- * Re-load a message for performing further operations.
- */
-function refresh(msg) {
-  return msg.channel.fetchMessage(msg.id);
-}
-
-/*
  * Get an emoji by name.
  */
 function get_emoji(name) {
   name = config.emoji[name] || name;
   return emoji_by_name[name] ||
-         moltres.emojis.find(e => e.name === name);
+         moltres.emojis.cache.find(e => e.name === name).toString();
 }
 
 /*
@@ -964,13 +957,13 @@ async function chain_reaccs(msg, ...reaccs) {
  */
 function get_role(name) {
   let impl = function(name) {
-    let role = guild().roles.find(r => r.name === name);
+    let role = guild().roles.cache.find(r => r.name === name);
     if (role) return role;
 
-    role = guild().roles.find(r => r.name === capitalize(name));
+    role = guild().roles.cache.find(r => r.name === capitalize(name));
     if (role) return role;
 
-    let matches = guild().roles.filter(
+    let matches = guild().roles.cache.filter(
       role => role.name.toLowerCase().startsWith(name.toLowerCase())
     );
     return matches.length === 1 ? matches.first() : null;
@@ -1005,7 +998,7 @@ function has_single_image(msg) {
  * Pin `msg' to its containing channel if there are no other pins.
  */
 async function pin_if_first(msg) {
-  let pins = await msg.channel.fetchPinnedMessages();
+  let pins = await msg.channel.messages.fetchPinned();
   if (pins.size !== 0) return;
   return msg.pin();
 }
@@ -1016,10 +1009,10 @@ async function pin_if_first(msg) {
 /*
  * Log base function.
  */
-function log_impl(msg, str, reacc = null) {
+async function log_impl(msg, str, reacc = null) {
   let promises = [];
 
-  let log = moltres.channels.get(config.log_id);
+  let log = await moltres.channels.fetch(config.log_id);
   promises.push(send_quiet(log, str));
 
   if (reacc) promises.push(chain_reaccs(msg, reacc));
@@ -1767,7 +1760,7 @@ function handle_help(msg, req) {
       'get numbers, answering a question for someone, etc., use the channel. ',
       'If you just got free and want to check on the current raid landscape,',
       'do that in a DM.\n\nUse `$help <req>` (e.g., `$help ls-gyms`) to learn',
-      'more about a specific request.\n\nMoltres\'s trainer is @mxawng#8480. ',
+      'more about a specific request.\n\nMoltres\'s trainer is @mxawng#0042. ',
       'You can help out at: <https://github.com/mxw/moltres>',
     ].join(' ');
   } else {
@@ -1833,7 +1826,7 @@ async function handle_ls_perms(msg) {
   for (let row of results) {
     perms[row.cmd] = perms[row.cmd] || [];
 
-    let member = guild().members.get(row.user_id);
+    let member = await guild().members.fetch(row.user_id);
     if (!member) continue;
 
     perms[row.cmd].push(member.nickname || member.user.username);
@@ -2358,8 +2351,8 @@ hatch: ${time_str(hatch, gyms.region)}`;
       let total = 0;
 
       // Get an array of attendee strings, removing the raid time caller.
-      let attendees = rows_by_time[t].map(row => {
-        let member = guild().members.get(row.rsvps.user_id);
+      let attendees = await Promise.all(rows_by_time[t].map(async (row) => {
+        let member = await guild().members.fetch(row.rsvps.user_id);
         if (!member) return null;
 
         total += (row.rsvps.extras + 1);
@@ -2373,12 +2366,13 @@ hatch: ${time_str(hatch, gyms.region)}`;
           ? ` +${row.rsvps.extras}`
           : '';
         return `${member.nickname || member.user.username}${extras}`
-      }).filter(a => a !== null);
+      }));
+      attendees = attendees.filter(a => a !== null);
 
       let caller_str = '';
 
       if (caller_rsvp !== null) {
-        let caller = guild().members.get(calls.caller);
+        let caller = await guild().members.fetch(calls.caller);
         caller_str =
           `${caller.nickname || caller.user.username} _(caller)_` +
           (caller_rsvp.extras !== 0 ? ` +${caller_rsvp.extras}` : '') +
@@ -2616,7 +2610,7 @@ async function handle_scrub(msg, handle) {
   );
   if (err) return log_mysql_error(msg, err);
 
-  let spotter = guild().members.get(raid.spotter);
+  let spotter = await guild().members.fetch(raid.spotter);
   if (!spotter) spotter = '[unknown user]';
 
   return send_for_region(raid.region,
@@ -2662,16 +2656,14 @@ async function get_all_raiders(msg, handle, time) {
 
   if (results.length < 1) return [null, []];
 
-  let raiders = [];
-
-  for (let row of results) {
-    let member = guild().members.get(row.rsvps.user_id);
-    if (member) raiders.push({
+  let raiders = await Promise.all(results.map(async (row) => {
+    let member = await guild().members.fetch(row.rsvps.user_id);
+    return member ? {
       member: member,
       extras: row.rsvps.extras,
-    });
-  }
-  return [results[0], raiders];
+    } : null;
+  }));
+  return [results[0], raiders.filter(m => m !== null)];
 }
 
 /*
@@ -2868,11 +2860,11 @@ async function handle_call(msg, handle, call_time, extras) {
   if (!found_one) return;
   let [raid] = results;
 
-  let region_str = function() {
+  let region_str = await async function() {
     let role_id = config.regions[raid.region];
     if (!role_id) return raid.region;
 
-    let role = msg.guild.roles.get(role_id);
+    let role = await msg.guild.roles.fetch(role_id);
     if (!role) return raid.region;
 
     return raid.silent ? role.name : role.toString();
@@ -3127,7 +3119,7 @@ async function handle_join(msg, handle, call_time, extras) {
       let edits = prev.alarms.map(alarm => alarm.edit(content));
 
       // ...and DM the raid caller.
-      let caller = await moltres.fetchUser(calls.caller);
+      let caller = await moltres.users.fetch(calls.caller);
       let dms = [dm_quiet(caller,
         `${get_emoji('rollsafe')} ${msg.author.tag} has joined the raid late ` +
         `at ${gym_name(gyms)} at ${time_str(calls.time, gyms.region)}.`
@@ -3272,7 +3264,10 @@ async function create_ex_room(room_name, gym, date) {
       },
     ]);
 
-  let room = await guild().createChannel(room_name, 'text', permissions);
+  let room = await guild().channels.create(room_name, {
+    type: 'text',
+    permissionOverwrites: permissions,
+  });
   room = await room.setTopic(
     `EX raid coordination for ${gym.name} on ${date_str(date)}.`
   );
@@ -3286,8 +3281,8 @@ async function create_ex_room(room_name, gym, date) {
  * Add or remove `user' to/from the EX raid room `room'.
  */
 async function enter_ex_room(uid, room) {
-  room = await room.overwritePermissions(uid, {VIEW_CHANNEL: true});
-  let user = await moltres.fetchUser(uid);
+  room = await room.updateOverwrite(uid, {VIEW_CHANNEL: true});
+  let user = await moltres.users.fetch(uid);
   return send_quiet(room, `Welcome ${user} to the room!`);
 }
 function exit_ex_room(uid, room) {
@@ -3322,9 +3317,9 @@ function ex_raiders(room) {
   uids.delete(guild().id);
   uids.delete(moltres.user.id);
 
-  uids = [...uids].filter(id => !guild().roles.get(id));
+  uids = [...uids].filter(id => !guild().roles.cache.get(id));
 
-  return Promise.all([...uids].map(id => moltres.fetchUser(id)));
+  return Promise.all([...uids].map(id => moltres.users.cache.get(id)));
 }
 
 /*
@@ -3373,9 +3368,9 @@ async function handle_ex(msg, handle, date) {
   // getting updated.
   //
   // let chan_list = 'category' in config.ex
-  //   ? moltres.channels.get(config.ex.category).children
+  //   ? moltres.channels.fetch(config.ex.category).children
   //   : guild().channels;
-  let chan_list = guild().channels;
+  let chan_list = guild().channels.cache;
 
   let room = chan_list.find(c => !!c.name.match(room_re));
 
@@ -3427,7 +3422,7 @@ async function handle_ex(msg, handle, date) {
 }
 
 async function handle_explore(msg) {
-  let room_info = new Map(guild().channels
+  let room_info = new Map(guild().channels.cache
     .filter(is_ex_room)
     .map(room => {
       let [, , time] = room.topic.match(ex_topic_capture);
@@ -3498,7 +3493,7 @@ async function handle_examine(msg) {
   let users = await ex_raiders(msg.channel);
 
   return send_quiet(msg.channel, {
-    embed: new Discord.RichEmbed()
+    embed: new Discord.MessageEmbed()
       .setTitle(
         `**List of EX raiders** for \`${ex.handle}\` on ${ex.month} ${ex.day}`
       )
@@ -3539,7 +3534,7 @@ function handle_expunge(msg, date) {
   }
   let expected = ex_format_date(date);
 
-  let rooms = guild().channels
+  let rooms = guild().channels.cache
     .filter(is_ex_room)
     .filter(room => ex_room_matches_date(room.name, expected));
 
@@ -3723,7 +3718,7 @@ async function process_request(msg) {
     args = args.substr(match.index + match[0].length);
   }
 
-  let log = moltres.channels.get(config.log_id);
+  let log = await moltres.channels.fetch(config.log_id);
   let output = `\`\$${req_str}\` ${args}
 _Time:_  ${get_now().toLocaleString('en-US')}
 _User:_  ${msg.author.tag}
