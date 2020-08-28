@@ -1527,6 +1527,8 @@ function parse_tier(tier) {
   if (tier.startsWith('T') || tier.startsWith('t')) {
     tier = tier.substr(1);
   }
+  if (tier === 'm' || tier === 'M') return 6;
+
   let t = parseInt(tier);
   if ('' + t !== tier) return null;
   return (t >= 1 && t <= 5) ? t : null;
@@ -1883,6 +1885,7 @@ async function handle_add_boss(msg, boss, tier) {
       raid_data.bosses_for_tier[old_tier].filter(b => b !== boss);
   }
   raid_data.raid_tiers[boss] = tier;
+  raid_data.bosses_for_tier[tier] = raid_data.bosses_for_tier[tier] || [];
   raid_data.bosses_for_tier[tier].push(boss);
   raid_data.bosses_for_tier[tier].sort();
   raid_data.raid_trie = trie(Object.keys(raid_data.raid_tiers));
@@ -2220,6 +2223,13 @@ function should_display_calls(msg) {
 }
 
 /*
+ * Canonicalize a tier for display.
+ */
+function fmt_tier(tier) {
+  return tier === 6 ? 'Mega' : `T${tier}`;
+}
+
+/*
  * Canonicalize a raid boss name.
  */
 function fmt_boss(boss) {
@@ -2239,7 +2249,7 @@ function fmt_tier_boss(raid) {
         ? fmt_boss(raid_data.boss_defaults[tier])
         : 'unknown';
 
-  return `T${tier} ${boss}`;
+  return `${fmt_tier(tier)} ${boss}`;
 }
 
 /*
@@ -2250,7 +2260,7 @@ function raid_report_notif(raid) {
   let hatch = hatch_from_despawn(raid.despawn);
 
   if (now < hatch) {
-    return `${get_emoji('raidegg')} **T${raid.tier} egg** ` +
+    return `${get_emoji('raidegg')} **${fmt_tier(raid.tier)} egg** ` +
            `hatches at ${gym_name(raid)} at ${time_str(hatch, raid.region)}`;
   }
   return `${get_emoji('boss')} **${fmt_tier_boss(raid)} raid** despawns ` +
@@ -2314,7 +2324,7 @@ raid: **${fmt_tier_boss(raids)}**
 despawn: ${time_str(raids.despawn, gyms.region)}`;
   } else {
     output +=`
-raid egg: **T${raids.tier}**
+raid egg: **${fmt_tier(raids.tier)}**
 hatch: ${time_str(hatch, gyms.region)}`;
   }
 
@@ -2424,14 +2434,16 @@ async function handle_ls_raids(msg, tier, region) {
     rows_by_raid[handle].push(row);
   }
 
-  let raids_expr = tier ? `**T${tier} raids**` : 'raids';
+  let raids_expr = tier ? `**${fmt_tier(tier)} raids**` : 'raids';
   let output = `Active ${raids_expr} in **${out_region}**:\n`;
 
   for (let handle in rows_by_raid) {
     let [{gyms, raids, calls}] = rows_by_raid[handle];
 
     let hatch = hatch_from_despawn(raids.despawn);
-    let boss = hatch > now ? `T${raids.tier} egg` : fmt_tier_boss(raids);
+    let boss = hatch > now
+      ? `${fmt_tier(raids.tier)} egg`
+      : fmt_tier_boss(raids);
     let timer_str = hatch > now
       ? `hatches at ${time_str(hatch, gyms.region)}`
       : `despawns at ${time_str(raids.despawn, gyms.region)}`
@@ -2616,14 +2628,16 @@ async function handle_scrub(msg, handle) {
 function handle_ls_bosses(msg) {
   let outvec = [];
 
-  for (let tier = 1; tier <= 5; ++tier) {
+  for (let tier = 1; tier <= 6; ++tier) {
+    if (!raid_data.bosses_for_tier[tier]) continue;
+
     let fmt_boss_with_default = function(boss) {
       let formatted = fmt_boss(boss);
       return raid_data.boss_defaults[tier] === boss
         ? formatted + ' _(default)_'
         : formatted;
     };
-    outvec.push(`**T${tier}:**\t` +
+    outvec.push(`**${fmt_tier(tier)}:**\t` +
       raid_data.bosses_for_tier[tier].map(fmt_boss_with_default).join(', ')
     );
   }
