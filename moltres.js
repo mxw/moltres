@@ -2530,17 +2530,17 @@ async function handle_update(msg, handle, data, mods) {
   let now = get_now();
 
   let assignment = await (async() => {
+    let tier = parse_tier(data);
+    if (tier !== null) {
+      return { tier: tier };
+    }
+
     let boss = await extract_boss(msg, parse_boss(data_lower));
     if (boss !== null) {
       return {
         tier: raid_data.raid_tiers[boss],
         boss: boss,
       };
-    }
-
-    let tier = parse_tier(data);
-    if (tier !== null) {
-      return { tier: tier };
     }
 
     if (data_lower === 'valor' ||
