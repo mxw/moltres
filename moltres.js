@@ -922,10 +922,11 @@ async function dm_reply_then_delete(msg, content, wait = 500) {
 /*
  * Get an emoji by name.
  */
-function get_emoji(name) {
+function get_emoji(name, reacc = false) {
   name = config.emoji[name] || name;
+  let extract = reacc ? (e => e.id) : (e => e.toString());
   return emoji_by_name[name] ||
-         moltres.emojis.cache.find(e => e.name === name).toString();
+         extract(moltres.emojis.cache.find(e => e.name === name));
 }
 
 /*
@@ -936,11 +937,11 @@ async function chain_reaccs(msg, ...reaccs) {
   let [head, ...tail] = reaccs;
 
   try {
-    let emoji = get_emoji(head);
+    let emoji = get_emoji(head, true);
     let reaction = await msg.react(emoji);
 
     for (let name of tail) {
-      let emoji = get_emoji(name);
+      let emoji = get_emoji(name, true);
       reaction = await reaction.message.react(emoji);
     }
   } catch (e) {
