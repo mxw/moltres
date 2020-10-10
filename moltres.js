@@ -1535,7 +1535,8 @@ function parse_tier(tier) {
  *    1/ Apply boss aliases to the input.
  *    2/ If the input is a prefix of a single boss name, return it.
  *    3/ Get all the boss names that start with input[0].  If there is a unique
- *       boss with edit distance 1 from the input, return it.
+ *       boss with minimal edit distance from the input, return it.
+ *    4/ Repeat step 3 but for all bosses.
  */
 function parse_boss(input) {
   input = input.toLowerCase();
@@ -1548,13 +1549,22 @@ function parse_boss(input) {
   let matches = raid_data.raid_trie.getPrefix(input);
   if (matches.length === 1) return wrap(matches[0]);
 
-  matches = raid_data.raid_trie.getPrefix(input[0])
-    .map(boss => ({
+  let find_match = bosses => {
+    let matches = bosses.map(boss => ({
       boss: boss,
-      lev: ed.levenshtein(input, boss, _ => 1, _ => 1, (x, y) => x !== y),
-    }))
-    .filter(meta => meta.lev.distance <= 2);
-  if (matches.length === 1) return wrap(matches[0].boss);
+      lev: ed.levenshtein(input, boss, _ => 1, _ => 1, (x, y) => 2 * (x !== y)),
+    }));
+    let min_dist = Math.min(...matches.map(meta => meta.lev.distance));
+    matches = matches.filter(meta => meta.lev.distance === min_dist);
+
+    return matches.length === 1 ? wrap(matches[0].boss) : null;
+  };
+
+  let match = find_match(raid_data.raid_trie.getPrefix(input[0]));
+  if (match) return match;
+
+  match = find_match(Object.keys(raid_data.raid_tiers));
+  if (match) return match;
 
   return null;
 }
