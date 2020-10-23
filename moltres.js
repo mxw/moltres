@@ -1384,6 +1384,8 @@ function parse_month_day(date) {
  * Parse a time given by HH:MM[am|pm].
  */
 function parse_hour_minute(time) {
+  if (time === 'hatch') return time;
+
   let matches = time.match(/^(\d{1,2})[:.](\d\d)([aApP][mM])?$/);
   if (matches === null) return null;
 
@@ -1403,6 +1405,20 @@ function parse_hour_minute(time) {
  */
 async function interpret_time(timespec, handle = null) {
   if (timespec === null) return null;
+
+  if (timespec === 'hatch') {
+    if (handle === null) return null;
+
+    let [results, err] = await moltresdb.query(
+      'SELECT * FROM gyms INNER JOIN raids ON gyms.id = raids.gym_id' +
+      '   WHERE ' + where_one_gym(handle)
+    );
+    if (err || results.length !== 1) return null;
+
+    let [raid] = results;
+    return hatch_from_despawn(raid.despawn);
+  }
+
   let {hours, mins, am_pm} = timespec;
 
   let now = get_now();
@@ -1961,6 +1977,9 @@ async function handle_raidday(msg, boss, despawn) {
   }
   if (despawn instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${despawn.arg}\`.`);
+  }
+  if (despawn === 'hatch') {
+    return log_invalid(msg, `Unrecognized HH:MM time \`hatch\`.`);
   }
   despawn = await interpret_time(despawn);
 
@@ -3516,6 +3535,9 @@ async function handle_examine(msg) {
 async function handle_exact(msg, time) {
   if (time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${time.arg}\`.`);
+  }
+  if (time === 'hatch') {
+    return log_invalid(msg, `Unrecognized HH:MM time \`hatch\`.`);
   }
   time = await interpret_time(time);
 
