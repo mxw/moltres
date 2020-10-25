@@ -1537,7 +1537,8 @@ function parse_tier(tier) {
   if (tier.startsWith('T') || tier.startsWith('t')) {
     tier = tier.substr(1);
   }
-  if (tier === 'm' || tier === 'M') return 6;
+  let lower = tier.toLowerCase();
+  if (lower === 'm' || lower === 'mega') return 6;
 
   let t = parseInt(tier);
   if ('' + t !== tier) return null;
