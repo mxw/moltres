@@ -852,6 +852,8 @@ async function send_quiet_impl(channel, ...contents) {
       message = await message.channel.send(item);
     }
   } catch (e) {
+    const chan_name = channel.name ?? channel.recipient?.tag ?? '<unknown>';
+    log_impl(null, `Problem sending a message to ${chan_name}.`);
     console.error(e);
   }
   return message;
@@ -877,13 +879,8 @@ function send_quiet(channel, content) {
   return send_quiet_impl(channel, ...outvec);
 }
 async function dm_quiet(user, content) {
-  try {
-    let dm = await user.createDM();
-    return send_quiet(dm, content);
-  } catch (e) {
-    log_impl(null, `Problem sending a DM to: ${user}`);
-    console.error(e);
-  }
+  let dm = await user.createDM();
+  return send_quiet(dm, content);
 }
 
 /*
