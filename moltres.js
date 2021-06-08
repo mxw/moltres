@@ -2221,6 +2221,7 @@ async function handle_ls_regions(msg) {
   let regions = new Set(results.map(gym => gym.region));
 
   let region_strs = Object.keys(config.metaregions).map(meta => {
+    regions.delete(meta);
     let subregions = config.metaregions[meta];
     for (let sr of subregions) regions.delete(sr);
     return `**${meta}** (_${subregions.join(', ')}_)`
