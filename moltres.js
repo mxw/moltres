@@ -1566,12 +1566,32 @@ function parse_boss(input) {
   let find_match = bosses => {
     let matches = bosses.map(boss => ({
       boss: boss,
+      substr: (() => {
+        if (boss.includes(input)) return true;
+
+        let boss_parts = boss.split('-');
+        let input_parts = input.split('-');
+
+        if (boss_parts.length !== input_parts.length) return false;
+
+        for (let i = 0; i < boss_parts.length; ++i) {
+          if (!boss_parts[i].includes(input_parts[i])) return false;
+        }
+        return true;
+      })(),
       lev: ed.levenshtein(input, boss, _ => 1, _ => 1, (x, y) => 2 * (x !== y)),
     }));
-    let min_dist = Math.min(...matches.map(meta => meta.lev.distance));
-    matches = matches.filter(meta => meta.lev.distance === min_dist);
 
-    return matches.length === 1 ? wrap(matches[0].boss) : null;
+    const choose_best = options => {
+      let min_dist = Math.min(...options.map(meta => meta.lev.distance));
+      options = options.filter(meta => meta.lev.distance === min_dist);
+
+      return options.length === 1 ? wrap(options[0].boss) : null;
+    };
+
+    let substrs = matches.filter(meta => meta.substr);
+    if (substrs.length > 0) return choose_best(substrs);
+    return choose_best(matches);
   };
 
   let match = find_match(raid_data.raid_trie.getPrefix(input[0]));
