@@ -2558,6 +2558,12 @@ async function handle_update(msg, handle, data, mods) {
   let now = get_now();
 
   let assignment = await (async() => {
+    if (data_lower === 'valor' ||
+        data_lower === 'mystic' ||
+        data_lower === 'instinct') {
+      return { team: data_lower };
+    }
+
     let tier = parse_tier(data);
     if (tier !== null) {
       return { tier: tier };
@@ -2569,12 +2575,6 @@ async function handle_update(msg, handle, data, mods) {
         tier: raid_data.raid_tiers[boss],
         boss: boss,
       };
-    }
-
-    if (data_lower === 'valor' ||
-        data_lower === 'mystic' ||
-        data_lower === 'instinct') {
-      return { team: data_lower };
     }
 
     return null;
