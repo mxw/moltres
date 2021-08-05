@@ -2790,6 +2790,23 @@ function set_raid_alarm(msg, gym, call_time) {
 }
 
 /*
+ * Format a join instruction string.
+ */
+function make_join_instrs(gym, raid, call_time) {
+  let time_snippet = (() => {
+    if (!call_time) return '';
+
+    let hatch = hatch_from_despawn(raid.despawn);
+    return call_time.getTime() === hatch.getTime()
+      ? ' hatch'
+      : ' ' + time_str_short(call_time, gym.region);
+  })();
+
+  return `\n\nTo join this raid time, enter ` +
+         `\`$join ${gym.handle}${time_snippet}\`.`;
+}
+
+/*
  * Cache for join messages.
  *
  * Maps a handle+time string to a {joins: [msgs], alarms: [msgs]}.
@@ -2924,8 +2941,7 @@ async function handle_call(msg, handle, call_time, extras) {
     `at ${gym_name(raid)} ` +
     `called for ${time_str(call_time, raid.region)} ` +
     `by ${msg.author}.  ${gyaoo}` +
-    `\n\nTo join this raid time, enter ` +
-    `\`$join ${raid.handle} ${time_str_short(call_time, raid.region)}\`.`;
+    make_join_instrs(raid, raid, call_time);
 
   return Promise.all([
     send_for_region(raid.region, output),
@@ -3143,12 +3159,7 @@ async function handle_join(msg, handle, call_time, extras) {
     output += '.';
   }
 
-  output += '\n\nTo join this raid time, enter ';
-  if (!!call_time) {
-    output += `\`$join ${handle} ${time_str_short(calls.time, gyms.region)}\`.`;
-  } else {
-    output += `\`$join ${handle}\`.`;
-  }
+  output += make_join_instrs(gyms, raids, !!call_time ? calls.time : null);
 
   let join_msgs = await send_for_region(gyms.region, output);
 
