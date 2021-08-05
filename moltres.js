@@ -20,7 +20,9 @@ let raid_data = {};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-const moltres = new Discord.Client();
+const moltres = new Discord.Client({
+  partials: ['USER'],
+});
 
 moltres.on('ready', () => {
   console.log(`Logged in as ${moltres.user.tag}.`);
@@ -841,15 +843,23 @@ function from_dm(msg) {
 /*
  * Wrapper around send() that chains messages and swallows exceptions.
  */
-async function send_quiet_impl(channel, ...contents) {
+async function send_quiet_impl(channel, reply_parent, ...contents) {
   if (contents.length === 0) return;
   let [head, ...tail] = contents;
 
   let message = null;
   try {
-    message = await channel.send(head);
-    for (let item of tail) {
-      message = await message.channel.send(item);
+    reply_parent = null; // XXX: lol
+    if (reply_parent) {
+      message = await reply_parent.reply(head);
+      for (let item of tail) {
+        message = await message.reply(item);
+      }
+    } else {
+      message = await channel.send(head);
+      for (let item of tail) {
+        message = await message.channel.send(item);
+      }
     }
   } catch (e) {
     const chan_name = channel.name ?? channel.recipient?.tag ?? '<unknown>';
@@ -862,7 +872,7 @@ async function send_quiet_impl(channel, ...contents) {
 /*
  * Wrappers around send_quiet_impl() which perform message chunking.
  */
-function send_quiet(channel, content) {
+function send_quiet(channel, content, reply_parent = null) {
   let outvec = [];
 
   if (typeof content === 'string') {
@@ -876,11 +886,17 @@ function send_quiet(channel, content) {
   }
   outvec.push(content);
 
-  return send_quiet_impl(channel, ...outvec);
+  return send_quiet_impl(channel, reply_parent, ...outvec);
 }
 async function dm_quiet(user, content) {
-  let dm = await user.createDM();
-  return send_quiet(dm, content);
+  try {
+    let dm = await user.createDM();
+    return send_quiet(dm, content);
+  } catch (e) {
+    log_impl(null, `Problem sending a message to ${user.tag}.`);
+    console.error(e);
+  }
+  return null;
 }
 
 /*
@@ -919,9 +935,9 @@ async function dm_reply_then_delete(msg, content, wait = 500) {
 /*
  * Get an emoji by name.
  */
-function get_emoji(name, reacc = false) {
+function get_emoji(name, by_id = false) {
   name = config.emoji[name] || name;
-  let extract = reacc ? (e => e.id) : (e => e.toString());
+  let extract = by_id ? (e => e.id) : (e => e.toString());
   return emoji_by_name[name] ||
          extract(moltres.emojis.cache.find(e => e.name === name));
 }
@@ -1005,6 +1021,13 @@ async function pin_if_first(msg) {
 // Error logging.
 
 /*
+ * Create a fake Message object that only the log routines will use.
+ */
+function make_fake_msg(author) {
+  return { author };
+}
+
+/*
  * Log base function.
  */
 async function log_impl(msg, str, reacc = null) {
@@ -1013,8 +1036,9 @@ async function log_impl(msg, str, reacc = null) {
   let log = await moltres.channels.fetch(config.log_id);
   promises.push(send_quiet(log, str));
 
-  if (reacc) promises.push(chain_reaccs(msg, reacc));
-
+  if (reacc && msg instanceof Discord.Message) {
+    promises.push(chain_reaccs(msg, reacc));
+  }
   return Promise.all(promises);
 };
 
@@ -1043,7 +1067,9 @@ async function log_invalid(msg, str, keep = false) {
     log_impl(msg, '_Error:_  ' + str, null),
     dm_quiet(msg.author, orig_str),
   ]);
-  if (!keep) await try_delete(msg);
+  if (!keep && msg instanceof Discord.Message) {
+    await try_delete(msg);
+  }
 };
 
 /*
@@ -2803,8 +2829,22 @@ function make_join_instrs(gym, raid, call_time) {
   })();
 
   return `\n\nTo join this raid time, enter ` +
-         `\`$join ${gym.handle}${time_snippet}\`.`;
+         `\`$join ${gym.handle}${time_snippet}\` ` +
+         `or react with ${get_emoji('join')} to the call message.`;
 }
+
+/*
+ * Cache for call messages.
+ *
+ * Maps call message ID to a {raid, call_time}.
+ */
+let call_cache = {};
+/*
+ * Maps a {handle, call_time} to a list of call messages.
+ */
+let call_cache_rev = {};
+
+function raid_cache_key(handle, time) { return handle + time.getTime(); }
 
 /*
  * Cache for join messages.
@@ -2814,13 +2854,13 @@ function make_join_instrs(gym, raid, call_time) {
 let join_cache = {};
 
 function join_cache_get(handle, time) {
-  return join_cache[handle + time.getTime()];
+  return join_cache[raid_cache_key(handle, time)];
 }
 function join_cache_set(handle, time, val) {
   if (val) {
-    join_cache[handle + time.getTime()] = val;
+    join_cache[raid_cache_key(handle, time)] = val;
   } else {
-    delete join_cache[handle + time.getTime()];
+    delete join_cache[raid_cache_key(handle, time)];
   }
 }
 
@@ -2943,8 +2983,27 @@ async function handle_call(msg, handle, call_time, extras) {
     `by ${msg.author}.  ${gyaoo}` +
     make_join_instrs(raid, raid, call_time);
 
+  let broadcast_call = async function() {
+    let call_msgs = await send_for_region(raid.region, output);
+    await Promise.all(call_msgs.map(m => m.react(get_emoji('join', true))));
+
+    let call_ids = call_msgs.map(m => m.id);
+    for (let id of call_ids) call_cache[id] = {raid, call_time};
+
+    let key = raid_cache_key(raid.handle, call_time);
+    call_cache_rev[key] = call_msgs;
+
+    setTimeout(
+      () => {
+        for (let id of call_ids) delete call_cache[id];
+        delete call_cache_rev[key];
+      },
+      raid.despawn - now
+    );
+  };
+
   return Promise.all([
-    send_for_region(raid.region, output),
+    broadcast_call(),
     set_raid_alarm(msg, raid, call_time),
   ]);
 }
@@ -3091,7 +3150,9 @@ async function handle_join(msg, handle, call_time, extras) {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
-  call_time = await interpret_time(call_time, handle);
+  if (!(call_time instanceof Date)) {
+    call_time = await interpret_time(call_time, handle);
+  }
 
   if (extras instanceof InvalidArg) {
     return log_invalid(msg, `Invalid +1 count \`${extras.arg}\`.`);
@@ -3161,7 +3222,16 @@ async function handle_join(msg, handle, call_time, extras) {
 
   output += make_join_instrs(gyms, raids, !!call_time ? calls.time : null);
 
-  let join_msgs = await send_for_region(gyms.region, output);
+  let join_msgs = await (() => {
+    let call_msgs = call_cache_rev[raid_cache_key(gyms.handle, calls.time)];
+    if (call_msgs) {
+      return Promise.all(call_msgs.map(
+        parent => send_quiet(parent.channel, output, parent)
+      ));
+    } else {
+      return send_for_region(gyms.region, output);
+    }
+  })();
 
   // Clear any existing join message for this raid.
   let replace_prev_msg = async function() {
@@ -3193,7 +3263,7 @@ async function handle_join(msg, handle, call_time, extras) {
   // cache this one for potential later deletion.
   return Promise.all([
     replace_prev_msg(),
-    try_delete(msg, 3000),
+    () => { if (msg instanceof Discord.Message) try_delete(msg, 3000); },
   ]);
 }
 
@@ -3827,4 +3897,17 @@ moltres.on('message', async msg => {
       console.error(e);
     }
   }
+});
+
+/*
+ * Process reacc joins.
+ */
+moltres.on('messageReactionAdd', async (reacc, user) => {
+  if (user.id === moltres.user.id) return;
+
+  let call = call_cache[reacc.message.id];
+  if (!call) return;
+
+  if (reacc.emoji.id !== get_emoji('join', true)) return;
+  await handle_join(make_fake_msg(user), call.raid.handle, call.call_time, 0);
 });
