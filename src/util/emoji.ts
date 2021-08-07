@@ -1,7 +1,7 @@
 /*
  * Discord emoji by name.
  */
-module.exports = {
+export const emoji_by_name = {
   alarm_clock: '⏰',
   bug: '🐛',
   clock230: '🕝',

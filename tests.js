@@ -2,7 +2,7 @@
  * Unit test configs for Moltres.
  */
 
-const utils = require('./utils.js');
+const utils = require('./args.js');
 const Arg = utils.Arg;
 const InvalidArg = utils.InvalidArg;
 

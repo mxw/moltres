@@ -1,7 +1,9 @@
 #!/bin/bash
 
-node moltres.js
+cd "$( dirname "${BASH_SOURCE[0]}" )"
+
+npx ts-node-cwd src/moltres.ts
 
 while [ $? -ne 0 ]; do
-  node moltres.js
+  npx ts-node-cwd src/moltres.ts
 done

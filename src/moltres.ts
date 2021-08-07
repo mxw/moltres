@@ -1,22 +1,39 @@
 /*
  * Custom raid bot for Valor of Boston.
  */
-'use strict';
+import * as Discord from 'discord.js';
+import * as mysql from 'async-mysql';
 
-const Discord = require('discord.js');
-const mysql = require('./async-mysql.js');
-const {DateTime, Duration, IANAZone, FixedOffsetZone} = require('luxon');
+import { DateTime, Duration, IANAZone, FixedOffsetZone } from 'luxon';
 
-const ed = require('edit-distance');
-const trie = require('trie-prefix-tree');
+import * as ed from 'edit-distance';
 
-const utils = require('./utils.js');
+import { default as trie } from 'trie-prefix-tree';
+type Trie = ReturnType<typeof trie>;
 
-let emoji_by_name = require('./emoji.js');
-let config = require('./config.js');
+import {
+  Arg, InvalidArg, TimeSpec, Timer,
+  get_now, parse_month_day, parse_hour_minute, parse_timer
+} from 'args';
+
+import { Result, OK, Err, isOK, isErr } from 'util/result'
+
+import * as Config from 'moltres-config'
+
+///////////////////////////////////////////////////////////////////////////////
+
+let config: typeof Config = require('moltres-config');
+let { emoji_by_name } = require('util/emoji');
 let channels_for_region = compute_region_channel_map();
 let tz_for_region = compute_region_tz_map();
-let raid_data = {};
+
+interface RaidData {
+  raid_tiers: Record<string, number>;
+  bosses_for_tier: string[][];
+  raid_trie: Trie;
+  boss_defaults: Record<number, string>;
+}
+let raid_data: RaidData;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -28,13 +45,13 @@ moltres.on('ready', () => {
   console.log(`Logged in as ${moltres.user.tag}.`);
 });
 
-let moltresdb;
+let moltresdb: mysql.AsyncConnection;
 
 mysql.connect({
   host: 'localhost',
-  user: config.dbuser || 'moltres',
+  user: config.dbuser ?? 'moltres',
   password: config.dbpass,
-  database: config.dbname || 'moltresdb',
+  database: config.dbname ?? 'moltresdb',
   supportBigNumbers: true,
   bigNumberStrings: true,
 })
@@ -44,11 +61,13 @@ mysql.connect({
 
   return read_bosses_table();
 })
-.then(([raid_tiers, boss_defaults]) => {
-  if (raid_tiers === null) {
+.then((result) => {
+  if (isErr(result)) {
     console.error(`Could not read raid bosses table.`);
     process.exit(1);
   }
+  const {raid_tiers, boss_defaults} = result.ok;
+
   raid_data = {
     raid_tiers: raid_tiers,
     bosses_for_tier: compute_tier_boss_map(raid_tiers),
@@ -69,72 +88,116 @@ function cleanup() {
   moltresdb.end().catch(console.error);
 }
 
-function signal_handler(signal) {
+function signal_handler(signal: NodeJS.Signals) {
   cleanup();
   console.error(`Got signal ${signal}.`);
-  process.exit(128 + signal);
+
+  process.removeListener(signal, signal_handler);
+  process.kill(process.pid, signal);
 }
 
-process.on('exit', cleanup);
 process.on('SIGINT', signal_handler);
 process.on('SIGHUP', signal_handler);
 process.on('SIGTERM', signal_handler);
 process.on('SIGABRT', signal_handler);
-process.on('uncaughtException', (err) => {
+process.on('uncaughtException', (err: Error) => {
   cleanup();
   console.error(`Caught exception: ${err}`);
   process.exit(1);
 });
+process.on('exit', cleanup);
 
 ///////////////////////////////////////////////////////////////////////////////
 
 /*
  * Who can use a request?
  */
-const Permission = {
-  ADMIN: 0,
-  NONE: 1,
-  WHITELIST: 2,
-  BLACKLIST: 3,
+enum Permission {
+  ADMIN,
+  NONE,
+  WHITELIST,
+  BLACKLIST,
 };
 
 /*
  * Where can a request be used from?
  */
-const Access = {
-  DM: 1 << 0,
-  REGION: 1 << 1,
-  EX_MAIN: 1 << 2,
-  EX_ROOM: 1 << 3,
-  ADMIN_DM: 1 << 4,
+enum Access {
+  DM = 1 << 0,
+  REGION = 1 << 1,
+  EX_MAIN = 1 << 2,
+  EX_ROOM = 1 << 3,
+  ADMIN_DM = 1 << 4,
 
   // Unions.
-  REGION_DM: 1 << 0 | 1 << 1,
-  EX_ALL: 1 << 2 | 1 << 3,
-  ALL: (1 << 5) - 1,
+  REGION_DM = 1 << 0 | 1 << 1,
+  EX_ALL = 1 << 2 | 1 << 3,
+  ALL = (1 << 5) - 1,
 };
 
 /*
  * Request modifiers.
  */
-const Mod = {
-  NONE: 0,
-  FORCE: 1 << 0,
-  ANON: 1 << 1,
+enum Mod {
+  NONE = 0,
+  FORCE = 1 << 0,
+  ANON = 1 << 1,
 };
 
-const modifier_map = {
+const modifier_map: Record<string, Mod> = {
   '!': Mod.FORCE,
   '?': Mod.ANON,
 };
 
-const Arg = utils.Arg;
-const InvalidArg = utils.InvalidArg;
+type Req =
+    'help'
+  | 'set-perm'
+  | 'ls-perms'
+
+  | 'add-boss'
+  | 'rm-boss'
+  | 'def-boss'
+
+  | 'add-gym'
+  | 'edit-gym'
+  | 'mv-gym'
+
+  | 'reload-config'
+  | 'raidday'
+  | 'test'
+
+  | 'gym'
+  | 'ls-gyms'
+  | 'ls-regions'
+
+  | 'raid'
+  | 'ls-raids'
+  | 'egg'
+  | 'boss'
+  | 'update'
+  | 'scrub'
+  | 'ls-bosses'
+
+  | 'call'
+  | 'cancel'
+  | 'change-time'
+  | 'join'
+  | 'unjoin'
+  | 'ping'
+
+  | 'ex'
+  | 'exit'
+  | 'examine'
+  | 'exact'
+  | 'exclaim'
+  | 'explore'
+  | 'expunge'
+  | 'exalt';
 
 /*
  * Order of display for $help.
  */
-const req_order = [
+const req_order: (Req | null)[] = [
   'help', null,
   'set-perm', 'ls-perms', 'add-boss', 'rm-boss', 'def-boss', null,
   'add-gym', 'edit-gym', 'mv-gym', null,
@@ -144,7 +207,7 @@ const req_order = [
   'ex', 'exit', 'examine', 'exact', 'exclaim', 'explore', 'expunge', 'exalt',
 ];
 
-const req_to_perm = {
+const req_to_perm: Partial<Record<Req, string>> = {
   'set-perm': 'perms',
   'ls-perms': 'perms',
   'add-boss': 'boss-table',
@@ -165,7 +228,18 @@ const req_to_perm = {
   'change-time': 'call',
 };
 
-const reqs = {
+interface ReqDesc {
+  perms: Permission;
+  access: Access;
+  usage: string;
+  args: Arg[];
+  mod_mask?: Mod;
+  desc: string;
+  detail: string[];
+  examples: Record<string, string>;
+}
+
+const reqs: Record<Req, ReqDesc> = {
   'help': {
     perms: Permission.NONE,
     access: Access.ALL,
@@ -474,7 +548,7 @@ const reqs = {
   },
   'scrub': {
     perms: Permission.BLACKLIST,
-    access: Access.REGION | Access.ADMIN_DM,
+    access: Access.REGION | Access.ADMIN_DM as Access,
     usage: '<gym-handle-or-name>',
     args: [Arg.VARIADIC],
     desc: 'Delete a reported raid and all associated information.',
@@ -700,7 +774,7 @@ const reqs = {
   },
 };
 
-const req_aliases = {
+const req_aliases: Record<string, Req> = {
   'g':            'gym',
   'gs':           'ls-gyms',
   'gyms':         'ls-gyms',
@@ -724,33 +798,38 @@ const gyaoo = 'Gyaoo!';
 /*
  * Pull the entire bosses table into global data structures.
  */
-async function read_bosses_table() {
-  let [results, err] = await moltresdb.query(
+async function read_bosses_table(): Promise<Result<{
+  raid_tiers: Record<string, number>,
+  boss_defaults: Record<number, string>
+}, mysql.QueryError>> {
+  const result = await moltresdb.query<Boss>(
     'SELECT * FROM bosses'
   );
-  if (err) return [null, null];
+  if (isErr(result)) return result;
 
-  let raid_tiers = {};
-  let boss_defaults = [];
+  const raid_tiers: Record<string, number> = {};
+  const boss_defaults: Record<number, string> = [];
 
-  for (let row of results) {
+  for (const row of result.ok) {
     if (row.is_default) {
       boss_defaults[row.tier] = row.boss;
     }
     raid_tiers[row.boss] = row.tier;
   }
-  return [raid_tiers, boss_defaults];
+  return OK({raid_tiers, boss_defaults});
 }
 
 /*
  * Invert the boss-to-tier map and return the result.
  */
-function compute_tier_boss_map(raid_tiers) {
-  let ret = [];
+function compute_tier_boss_map(
+  raid_tiers: Record<string, number>
+): string[][] {
+  const ret: string[][] = [];
 
-  for (let boss in raid_tiers) {
-    let tier = raid_tiers[boss];
-    ret[tier] = ret[tier] || [];
+  for (const boss in raid_tiers) {
+    const tier = raid_tiers[boss];
+    ret[tier] = ret[tier] ?? [];
     ret[tier].push(boss);
   }
   for (let list of ret) {
@@ -762,27 +841,29 @@ function compute_tier_boss_map(raid_tiers) {
 /*
  * Invert the channel-to-region map, and splat out any metaregions.
  */
-function compute_region_channel_map() {
-  let ret = {};
+function compute_region_channel_map(): Record<string, Discord.Snowflake[]> {
+  const ret: Record<string, Set<Discord.Snowflake>> = {};
 
-  for (let chan in config.channels) {
-    let regions = config.channels[chan];
-    for (let region of regions) {
+  for (const chan in config.channels) {
+    const regions = config.channels[chan];
+    for (const region of regions) {
       if (region in config.metaregions) {
-        for (let subregion of config.metaregions[region]) {
-          ret[subregion] = ret[subregion] || new Set();
+        for (const subregion of config.metaregions[region]) {
+          ret[subregion] = ret[subregion] ?? new Set();
           ret[subregion].add(chan);
         }
       } else {
-        ret[region] = ret[region] || new Set();
+        ret[region] = ret[region] ?? new Set();
         ret[region].add(chan);
       }
     }
   }
-  for (let region in ret) {
-    ret[region] = [...ret[region]];
+
+  const out: Record<string, Discord.Snowflake[]> = {};
+  for (const region in ret) {
+    out[region] = [...ret[region]];
   }
-  return ret;
+  return out;
 }
 
 /*
@@ -791,17 +872,17 @@ function compute_region_channel_map() {
  * Any region overrides will take precedence over overrides for any containing
  * metaregions.
  */
-function compute_region_tz_map() {
-  let ret = {};
+function compute_region_tz_map(): Record<string, string> {
+  const ret: Record<string, string> = {};
 
-  for (let region in config.timezones) {
+  for (const region in config.timezones) {
     if (!(region in config.metaregions)) continue;
 
-    for (let subregion of config.metaregions[region]) {
+    for (const subregion of config.metaregions[region]) {
       ret[subregion] = config.timezones[region];
     }
   }
-  for (let region in config.timezones) {
+  for (const region in config.timezones) {
     if (region in config.metaregions) continue;
     ret[region] = config.timezones[region];
   }
@@ -810,9 +891,9 @@ function compute_region_tz_map() {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// Misc utilities.
+// String utilities.
 
-function capitalize(str) {
+function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.substr(1);
 }
 
@@ -822,48 +903,55 @@ function capitalize(str) {
 /*
  * Get the main guild for bot requests.
  */
-function guild() {
+function guild(): Discord.Guild {
   return moltres.guilds.cache.get(config.guild_id);
 }
 
 /*
  * Whether `user' is a member of `guild'.
  */
-function is_member(guild, user) {
+function is_member(guild: Discord.Guild, user: Discord.User): boolean {
   return guild.member(user) !== null;
 }
 
 /*
  * Whether `msg' is from a DM.
  */
-function from_dm(msg) {
+function from_dm(msg: Discord.Message): boolean {
   return msg.channel.type === 'dm';
 }
+
+type MessageContent = string | (Discord.MessageOptions & { split?: false })
 
 /*
  * Wrapper around send() that chains messages and swallows exceptions.
  */
-async function send_quiet_impl(channel, reply_parent, ...contents) {
+async function send_quiet_impl(
+  channel: Discord.TextChannel | Discord.NewsChannel | Discord.DMChannel,
+  reply_parent: Discord.Message | null,
+  ...contents: MessageContent[]
+): Promise<Discord.Message> {
   if (contents.length === 0) return;
-  let [head, ...tail] = contents;
+  const [head, ...tail] = contents;
 
-  let message = null;
+  let message: Discord.Message;
   try {
     reply_parent = null; // XXX: lol
     if (reply_parent) {
       message = await reply_parent.reply(head);
-      for (let item of tail) {
+      for (const item of tail) {
         message = await message.reply(item);
       }
     } else {
       message = await channel.send(head);
-      for (let item of tail) {
+      for (const item of tail) {
         message = await message.channel.send(item);
       }
     }
   } catch (e) {
+    // @ts-ignore
     const chan_name = channel.name ?? channel.recipient?.tag ?? '<unknown>';
-    log_impl(null, `Problem sending a message to ${chan_name}.`);
+    log_impl(`Problem sending a message to ${chan_name}.`);
     console.error(e);
   }
   return message;
@@ -872,8 +960,12 @@ async function send_quiet_impl(channel, reply_parent, ...contents) {
 /*
  * Wrappers around send_quiet_impl() which perform message chunking.
  */
-function send_quiet(channel, content, reply_parent = null) {
-  let outvec = [];
+function send_quiet(
+  channel: Discord.TextChannel | Discord.NewsChannel | Discord.DMChannel,
+  content: MessageContent,
+  reply_parent?: Discord.Message,
+): Promise<Discord.Message> {
+  const outvec = [];
 
   if (typeof content === 'string') {
     while (content.length >= 2000) {
@@ -888,34 +980,42 @@ function send_quiet(channel, content, reply_parent = null) {
 
   return send_quiet_impl(channel, reply_parent, ...outvec);
 }
-async function dm_quiet(user, content) {
+async function dm_quiet(
+  user: Discord.User,
+  content: string,
+): Promise<Discord.Message> {
   try {
-    let dm = await user.createDM();
+    const dm = await user.createDM();
     return send_quiet(dm, content);
   } catch (e) {
-    log_impl(null, `Problem sending a message to ${user.tag}.`);
+    log_impl(`Problem sending a message to ${user.tag}.`);
     console.error(e);
   }
-  return null;
 }
 
 /*
  * Send `content' to all the channels for `region'.
  */
-function send_for_region(region, content) {
-  let channels = channels_for_region[region];
+function send_for_region(
+  region: string,
+  content: string
+): Promise<Discord.Message[]> {
+  const channels = channels_for_region[region];
   if (!channels) return;
 
   return Promise.all(channels.map(async (chan_id) => {
-    let chan = await moltres.channels.fetch(chan_id);
-    return send_quiet(chan, content);
+    const chan = await moltres.channels.fetch(chan_id);
+    return send_quiet(chan as Discord.TextChannel, content);
   }));
 }
 
 /*
  * Try to delete a message if it's not on a DM channel.
  */
-async function try_delete(msg, wait = 0) {
+async function try_delete(
+  msg: Discord.Message,
+  wait: number = 0,
+): Promise<void> {
   if (from_dm(msg)) return;
   try {
     await msg.delete({timeout: wait});
@@ -927,7 +1027,11 @@ async function try_delete(msg, wait = 0) {
 /*
  * Reply to a message via DM, then delete it.
  */
-async function dm_reply_then_delete(msg, content, wait = 500) {
+async function dm_reply_then_delete(
+  msg: Discord.Message,
+  content: string,
+  wait: number = 500,
+): Promise<void> {
   await dm_quiet(msg.author, content);
   return try_delete(msg, wait);
 }
@@ -935,26 +1039,32 @@ async function dm_reply_then_delete(msg, content, wait = 500) {
 /*
  * Get an emoji by name.
  */
-function get_emoji(name, by_id = false) {
-  name = config.emoji[name] || name;
-  let extract = by_id ? (e => e.id) : (e => e.toString());
-  return emoji_by_name[name] ||
+function get_emoji(name: string, by_id: boolean = false): string {
+  name = config.emoji[name as Config.EmojiAlias] ?? name;
+
+  const extract: (e: Discord.Emoji) => string =
+    by_id ? (e => e.id) : (e => e.toString());
+
+  return emoji_by_name[name] ??
          extract(moltres.emojis.cache.find(e => e.name === name));
 }
 
 /*
  * Add reactions to `msg' in order.
  */
-async function chain_reaccs(msg, ...reaccs) {
+async function chain_reaccs(
+  msg: Discord.Message,
+  ...reaccs: string[]
+): Promise<void> {
   if (reaccs.length === 0) return;
-  let [head, ...tail] = reaccs;
+  const [head, ...tail] = reaccs;
 
   try {
-    let emoji = get_emoji(head, true);
+    const emoji = get_emoji(head, true);
     let reaction = await msg.react(emoji);
 
-    for (let name of tail) {
-      let emoji = get_emoji(name, true);
+    for (const name of tail) {
+      const emoji = get_emoji(name, true);
       reaction = await reaction.message.react(emoji);
     }
   } catch (e) {
@@ -969,21 +1079,21 @@ async function chain_reaccs(msg, ...reaccs) {
  * all roles in the guild.  If that fails, it tries again replacing all hyphens
  * with whitespace.
  */
-function get_role(name) {
-  let impl = function(name) {
+function get_role(name: string): Discord.Role | null {
+  const impl = (name: string): Discord.Role | null => {
     let role = guild().roles.cache.find(r => r.name === name);
     if (role) return role;
 
     role = guild().roles.cache.find(r => r.name === capitalize(name));
     if (role) return role;
 
-    let matches = guild().roles.cache.filter(
+    const matches = guild().roles.cache.filter(
       role => role.name.toLowerCase().startsWith(name.toLowerCase())
     );
-    return matches.length === 1 ? matches.first() : null;
+    return matches.size === 1 ? matches.first() : null;
   };
 
-  let role = impl(name);
+  const role = impl(name);
   if (role !== null) return role;
 
   return impl(name.replace(/-/g, ' '));
@@ -992,18 +1102,18 @@ function get_role(name) {
 /*
  * Count all the mentions in `msg'.
  */
-function total_mentions(msg) {
+function total_mentions(msg: Discord.Message): number {
   return msg.mentions.channels.size +
          msg.mentions.members.size +
          msg.mentions.roles.size +
          msg.mentions.users.size +
-         msg.mentions.everyone;
+         +msg.mentions.everyone;
 }
 
 /*
  * Return whether `msg' has exactly one image attachment.
  */
-function has_single_image(msg) {
+function has_single_image(msg: Discord.Message): boolean | null {
   if (msg.attachments.size !== 1) return null;
   return !!msg.attachments.first().height;
 }
@@ -1011,8 +1121,8 @@ function has_single_image(msg) {
 /*
  * Pin `msg' to its containing channel if there are no other pins.
  */
-async function pin_if_first(msg) {
-  let pins = await msg.channel.messages.fetchPinned();
+async function pin_if_first(msg: Discord.Message): Promise<any> {
+  const pins = await msg.channel.messages.fetchPinned();
   if (pins.size !== 0) return;
   return msg.pin();
 }
@@ -1020,64 +1130,81 @@ async function pin_if_first(msg) {
 ///////////////////////////////////////////////////////////////////////////////
 // Error logging.
 
-/*
- * Create a fake Message object that only the log routines will use.
- */
-function make_fake_msg(author) {
-  return { author };
+interface ReqOrigin {
+  author: Discord.User;
 }
 
 /*
  * Log base function.
  */
-async function log_impl(msg, str, reacc = null) {
-  let promises = [];
-
-  let log = await moltres.channels.fetch(config.log_id);
-  promises.push(send_quiet(log, str));
-
-  if (reacc && msg instanceof Discord.Message) {
-    promises.push(chain_reaccs(msg, reacc));
-  }
-  return Promise.all(promises);
+async function log_impl(str: string): Promise<Discord.Message> {
+  const log = await moltres.channels.fetch(config.log_id);
+  return send_quiet(log as Discord.TextChannel, str);
 };
 
 /*
- * Log a successful request, an invalid request, or an internal error.
+ * React to a successful request.
  */
-function react_success(msg, reacc = null) {
-  return chain_reaccs(msg, reacc || 'approved');
+function react_success(
+  msg: Discord.Message,
+  reacc?: string,
+): Promise<void> {
+  return chain_reaccs(msg, reacc ?? 'approved');
 };
-function log_error(msg, str, reacc = null) {
-  return log_impl(msg, '_Error:_  ' + str, reacc || 'no_good');
+
+/*
+ * Log an internal error.
+ */
+function log_error(
+  str: string,
+  origin: ReqOrigin | null,
+  reacc?: string,
+): Promise<any> {
+  return Promise.all([
+    log_impl('_Error:_  ' + str),
+    async() => {
+      if (origin && origin instanceof Discord.Message) {
+        chain_reaccs(origin, reacc ?? 'no_good');
+      }
+    },
+  ]);
 };
-async function log_invalid(msg, str, keep = false) {
-  let orig_str = str;
+
+/*
+ * Handle an invalid request by logging, DMing the user, and possibly deleting
+ * the request message.
+ */
+async function log_invalid(
+  origin: ReqOrigin,
+  str: string,
+  keep: boolean = false,
+): Promise<void> {
+  const orig_str = str;
 
   // Truncate long error messages types.
   if (str.startsWith('**Usage**')) {
     str = 'Usage: [...]';
   }
-  let pos = str.indexOf('\nGyms matching');
+  const pos = str.indexOf('\nGyms matching');
   if (pos !== -1) {
     str = str.slice(0, pos);
   }
 
   await Promise.all([
-    log_impl(msg, '_Error:_  ' + str, null),
-    dm_quiet(msg.author, orig_str),
+    log_impl('_Error:_  ' + str),
+    dm_quiet(origin.author, orig_str),
   ]);
-  if (!keep && msg instanceof Discord.Message) {
-    await try_delete(msg);
+  if (!keep && origin instanceof Discord.Message) {
+    await try_delete(origin);
   }
 };
 
 /*
  * Get the usage string for `req'.
  */
-function usage_string(req) {
+function usage_string(req: Req): string {
   if (!(req in reqs)) return null;
-  let meta = reqs[req];
+  const meta = reqs[req];
 
   let result = `**Usage**: \`\$${req} ${meta.usage}\`
 
@@ -1085,7 +1212,7 @@ function usage_string(req) {
 
 ${meta.detail.join(' ')}`;
 
-  let aliases = Object.keys(req_aliases)
+  const aliases = Object.keys(req_aliases)
     .filter(k => req_aliases[k] === req)
     .map(a => `\`\$${a}\``);
   if (aliases.length > 0) {
@@ -1095,11 +1222,76 @@ ${meta.detail.join(' ')}`;
   if (Object.keys(meta.examples).length === 0) return result;
   result += '\n\n**Examples**:';
 
-  for (let ex in meta.examples) {
+  for (const ex in meta.examples) {
     result += `\n\t\`\$${req} ${ex}\`: ${meta.examples[ex]}`;
   }
   return result;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// DB datatypes.
+
+enum Team {
+  Valor = 'valor',
+  Mystic = 'mystic',
+  Instinct = 'instinct',
+}
+
+interface Gym {
+  id: number;
+  handle: string;
+  name: string;
+  region: string;
+  lat: number;
+  lng: number;
+  ex: boolean;
+  silent: boolean;
+}
+
+interface Raid {
+  gym_id: number;
+  tier: number;
+  boss: string | null;
+  despawn: Date;
+  spotter: Discord.Snowflake;
+  team: Team;
+}
+
+interface Call {
+  id: number;
+  raid_id: number;
+  caller: Discord.Snowflake;
+  time: Date;
+}
+
+interface Join {
+  call_id: number;
+  user_id: Discord.Snowflake;
+  extras: number;
+  maybe: boolean;
+}
+
+interface Boss {
+  boss: string;
+  tier: number;
+  is_default: boolean;
+}
+
+interface PermissionRow {
+  cmd: Req;
+  user_id: Discord.Snowflake;
+}
+
+interface FullJoinTableRow {
+  gyms: Gym;
+  raids: Raid;
+  calls: Call;
+  rsvps: Join;
+};
+type CallJoinTableRow = Omit<FullJoinTableRow, 'rsvps'>
+
+///////////////////////////////////////////////////////////////////////////////
+// DB error logging.
 
 /*
  * Extract an array of unique gym table entries from an error-messaging query.
@@ -1107,14 +1299,18 @@ ${meta.detail.join(' ')}`;
  * The `rows' can either be nested or not, and we assume that where_one_gym
  * uniquification has not already been performed.
  */
-function uniq_gyms_for_error(rows, handle) {
-  let [first = {}] = rows;
+function uniq_gyms_for_error(
+  rows: Gym[] | {gyms: Gym}[],
+  handle: string
+): Gym[] {
+  const [first = {}] = rows;
 
   if ('gyms' in first) {
-    rows = rows.map(row => row.gyms);
+    rows = (rows as {gyms: Gym}[]).map(row => row.gyms);
   }
+  rows = rows as Gym[]; // blarg
 
-  let found_handles = new Set();
+  const found_handles: Set<string> = new Set();
 
   rows = rows.filter(gym => {
     if (found_handles.has(gym.handle)) return false;
@@ -1123,7 +1319,7 @@ function uniq_gyms_for_error(rows, handle) {
   });
 
   // Account for our preference for exact handle matches.
-  let maybe_unique = rows.filter(gym => gym.handle === handle);
+  const maybe_unique = rows.filter(gym => gym.handle === handle);
   if (maybe_unique.length === 1) rows = maybe_unique;
 
   return rows;
@@ -1135,15 +1331,19 @@ function uniq_gyms_for_error(rows, handle) {
  *
  * Otherwise, return true.
  */
-async function check_gym_match(msg, gyms, handle) {
+async function check_gym_match(
+  origin: ReqOrigin,
+  gyms: Gym[],
+  handle: string,
+): Promise<boolean> {
   if (gyms.length === 0) {
-    await log_invalid(msg,
+    await log_invalid(origin,
       `No gyms found matching \`[${handle}]\`.`
     );
     return false;
   }
   if (gyms.length > 1) {
-    await log_invalid(msg,
+    await log_invalid(origin,
       `Ambiguous gym identifier \`[${handle}]\`.\n` +
       `Gyms matching \`${handle}\`:\n\n` + list_gyms(gyms)
     );
@@ -1159,10 +1359,17 @@ async function check_gym_match(msg, gyms, handle) {
  * return a tuple of the raid and call time info, along with the row for the
  * gym itself.
  */
-async function query_for_error(msg, handle, now = null) {
-  now = now || get_now();
+async function query_for_error(
+  origin: ReqOrigin,
+  handle: string,
+  now?: Date,
+): Promise<{
+  call_rows: CallJoinTableRow[],
+  gym: Gym | null
+}> {
+  now = now ?? get_now();
 
-  let [results, err] = await moltresdb.query({
+  const result = await moltresdb.query<CallJoinTableRow>({
     sql:
       'SELECT * FROM gyms ' +
       '   LEFT JOIN raids ON ( ' +
@@ -1171,69 +1378,76 @@ async function query_for_error(msg, handle, now = null) {
       '   ) ' +
       '   LEFT JOIN calls ON raids.gym_id = calls.raid_id ' +
       'WHERE gyms.handle LIKE ? OR gyms.name LIKE ? ',
-    values: [now].concat(Array(2).fill(`%${handle}%`)),
+    values: [now as any].concat(Array(2).fill(`%${handle}%`)),
     nestTables: true,
   });
-  if (err) {
-    await log_mysql_error(msg, err);
-    return [null, null];
+  if (isErr(result)) {
+    await log_mysql_error(origin, result.err);
+    return {call_rows: [], gym: null};
   }
 
-  let gyms = uniq_gyms_for_error(results, handle);
+  const gyms = uniq_gyms_for_error(result.ok, handle);
 
-  let pass = await check_gym_match(msg, gyms, handle);
-  if (!pass) return [null, null];
+  const pass = await check_gym_match(origin, gyms, handle);
+  if (!pass) return {call_rows: [], gym: null};
 
-  let [gym] = gyms;
-  let call_rows = results.filter(row => row.gyms.handle === gym.handle);
-
-  return [call_rows, gym];
+  const [gym] = gyms;
+  const call_rows = result.ok.filter(row => row.gyms.handle === gym.handle);
+  return {call_rows, gym};
 }
 
 /*
  * Like query_for_error(), but checks call times.
  */
-async function query_for_error_call(msg, handle, call_time, req, now = null) {
-  let [call_rows, gym] = await query_for_error(msg, handle);
-  if (!gym) return [null, null];
+async function query_for_error_call(
+  origin: ReqOrigin,
+  handle: string,
+  call_time: Date,
+  req: Req,
+): Promise<{
+  call_row: CallJoinTableRow | null,
+  gym: Gym | null
+}> {
+  const {call_rows, gym} = await query_for_error(origin, handle);
+  if (!gym) return {call_row: null, gym: null};
 
-  let fail = async function(...args) {
+  const fail = async function(...args: Parameters<typeof log_invalid>) {
     await log_invalid(...args);
-    return [null, gym];
+    return {call_row: null as (CallJoinTableRow | null), gym};
   };
 
-  let [first] = call_rows;
+  const [first] = call_rows;
 
   if (first.raids.gym_id === null) {
-    return fail(msg,
+    return fail(origin,
       `No raid has been reported at ${gym_name(gym)}.`
     );
   }
   if (first.calls.raid_id === null) {
-    return fail(msg,
+    return fail(origin,
       `No times have been called for the raid at ${gym_name(gym)}.`
     );
   }
 
   if (!call_time && call_rows.length > 1) {
-    return fail(msg,
+    return fail(origin,
       `Multiple times have been called for the raid at ${gym_name(gym)}.` +
       `  Please include the time in your post (e.g., \`$${req} ${handle} ` +
       `${time_str_short(first.calls.time, gym.region)} [...])\`.`
     );
   }
 
-  let call = !!call_time
+  const call = !!call_time
     ? call_rows.find(row => row.calls.time.getTime() === call_time.getTime())
     : call_rows[0];
 
   if (call_time && !call) {
-    return fail(msg,
+    return fail(origin,
       `No raid at ${gym_name(gym)} has been called for ` +
       `${time_str(call_time, gym.region)}.`
     );
   }
-  return [call, gym];
+  return {call_row: call, gym};
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1257,10 +1471,14 @@ async function query_for_error_call(msg, handle, call_time, req, now = null) {
 /*
  * Log a MySQL error.
  */
-function log_mysql_error(msg, err) {
+function log_mysql_error(
+  origin: ReqOrigin | null,
+  err: mysql.QueryError,
+): Promise<any> {
   console.error(err);
-  return log_error(msg,
-    `MySQL error: ${err.code} (${err.errno}): ${err.sqlMessage})`
+  return log_error(
+    `MySQL error: ${err.code} (${err.errno}): ${err.sqlMessage})`,
+    origin
   );
 }
 
@@ -1270,7 +1488,7 @@ function log_mysql_error(msg, err) {
 /*
  * Get a SQL WHERE clause fragment for selecting a unique gym matching `handle'.
  */
-function where_one_gym(handle) {
+function where_one_gym(handle: string): string {
   handle = handle.replace(/’/g, "'");
 
   return mysql.format(
@@ -1287,8 +1505,13 @@ function where_one_gym(handle) {
  * Get a SQL WHERE clause fragment for selecting a region or all regions
  * belonging to a metaregion.
  */
-function where_region(region) {
-  let metanames = Object.keys(config.metaregions).filter(
+function where_region(
+  region: string,
+): {
+  meta: string;
+  sql: string;
+} {
+  const metanames = Object.keys(config.metaregions).filter(
     name => name.toLowerCase().startsWith(region.toLowerCase())
   );
 
@@ -1299,8 +1522,8 @@ function where_region(region) {
     };
   }
 
-  let regions = config.metaregions[metanames[0]]
-  let sql = regions
+  const regions = config.metaregions[metanames[0]]
+  const sql = regions
     .map(r => mysql.format('gyms.region LIKE ?', [`${r}%`]))
     .join(' OR ');
 
@@ -1318,7 +1541,10 @@ function where_region(region) {
  * If `for_update' is true, we proxy through a temporary table because we're
  * modifying the calls table.
  */
-function where_call_time(call_time, for_update = false) {
+function where_call_time(
+  call_time: Date | null,
+  for_update: boolean = false,
+): string {
   if (!!call_time) {
     return mysql.format(' calls.time = ? ', [call_time]);
   }
@@ -1335,14 +1561,16 @@ function where_call_time(call_time, for_update = false) {
  *
  * If there is no such gym, return null.  This function never errors.
  */
-async function select_region(handle) {
-  let [results, err] = await moltresdb.query(
+async function select_region(
+  handle: string,
+): Promise<string> {
+  const result = await moltresdb.query<Gym>(
     'SELECT * FROM gyms WHERE ' + where_one_gym(handle)
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(null, result.err);
 
-  if (results.length !== 1) return null;
-  let [gym] = results;
+  if (result.ok.length !== 1) return null;
+  const [gym] = result.ok;
 
   return gym.region;
 }
@@ -1360,8 +1588,12 @@ const full_join_table =
  * Select all rows from the full left-join raid-rsvps table for a unique gym
  * `handle' and satisfying `xtra_where'.
  */
-function select_rsvps(handle, xtra_where = null, xtra_values = []) {
-  return moltresdb.query({
+function select_rsvps(
+  handle: string,
+  xtra_where: string | null = null,
+  xtra_values: any[] = []
+): Promise<mysql.QueryResult<FullJoinTableRow>> {
+  return moltresdb.query<FullJoinTableRow>({
     sql:
       'SELECT * FROM ' + full_join_table +
       '   WHERE ' + where_one_gym(handle) +
@@ -1378,100 +1610,60 @@ const egg_duration = 60;
 const boss_duration = 45;
 
 /*
- * Return a Date for the current time.
- */
-function get_now() {
-  return new Date(Date.now());
-}
-
-/*
- * Parse a date given by MM/DD as a Date object.
- */
-function parse_month_day(date) {
-  let matches = date.match(/^(\d{1,2})\/(\d{1,2})$/);
-  if (matches === null) return null;
-
-  let [, month, day] = matches;
-  [month, day] = [parseInt(month), parseInt(day)];
-
-  let now = get_now();
-
-  return new Date(
-    now.getFullYear() + (now.getMonth() === 12 && month === 1),
-    month - 1,
-    day
-  );
-}
-
-/*
- * Parse a time given by HH:MM[am|pm].
- */
-function parse_hour_minute(time) {
-  if (time === 'hatch') return time;
-
-  let matches = time.match(/^(\d{1,2})[:.](\d\d)([aApP][mM])?$/);
-  if (matches === null) return null;
-
-  let [, hours, mins, am_pm] = matches;
-  [hours, mins] = [parseInt(hours), parseInt(mins)];
-  if (hours >= 24 || mins >= 60) return null;
-
-  return {hours, mins, am_pm};
-}
-
-/*
  * Take an object returned by parse_hour_minute() and convert to a Date object.
  *
  * This function uses rough heuristics to determine whether the user meant A.M.
  * or P.M., based on the assumption that the intent is always to represent the
  * most proximal time in the future.  Users can override this with `am`/`pm`.
  */
-async function interpret_time(timespec, handle = null) {
+async function interpret_time(
+  timespec: TimeSpec | null,
+  handle?: string
+): Promise<Date | null> {
   if (timespec === null) return null;
 
   if (timespec === 'hatch') {
     if (handle === null) return null;
 
-    let [results, err] = await moltresdb.query(
+    const result = await moltresdb.query<Gym & Raid>(
       'SELECT * FROM gyms INNER JOIN raids ON gyms.id = raids.gym_id' +
       '   WHERE ' + where_one_gym(handle)
     );
-    if (err || results.length !== 1) return null;
+    if (isErr(result) || result.ok.length !== 1) return null;
 
-    let [raid] = results;
+    const [raid] = result.ok;
     return hatch_from_despawn(raid.despawn);
   }
 
   let {hours, mins, am_pm} = timespec;
 
-  let now = get_now();
+  const now = get_now();
 
-  let tz = await async function() {
+  const tz = await async function(): Promise<string> {
     // Use the default timezone if we have no region or no overrides.
     if (handle === null) return config.tz_default;
     if (Object.keys(tz_for_region).length === 0) return config.tz_default;
 
-    let region = await select_region(handle);
+    const region = await select_region(handle);
     // If we failed to find a region for `handle', just use the default
     // timezone.  This may not match the user's intentions, but some other
     // failure is going to be reported anyway, so it doesn't matter.
     if (region === null) return config.tz_default;
 
-    return tz_for_region[region] || config.tz_default;
+    return tz_for_region[region] ?? config.tz_default;
   }();
 
-  let offset_delta = function() {
-    let local_offset = -now.getTimezoneOffset();
-    let local_tz = FixedOffsetZone.instance(local_offset);
-    let remote_tz = IANAZone.create(tz);
-    let remote_offset = remote_tz.offset(now.getTime());
+  const offset_delta = function() {
+    const local_offset = -now.getTimezoneOffset();
+    const local_tz = FixedOffsetZone.instance(local_offset);
+    const remote_tz = IANAZone.create(tz);
+    const remote_offset = remote_tz.offset(now.getTime());
 
     return (remote_offset - local_offset) / 60;
   }();
 
   hours = function() {
     if (am_pm) {
-      am_pm = am_pm.toLowerCase();
       if (am_pm === 'am') return hours % 12;
       if (am_pm === 'pm') return hours % 12 + 12;
     }
@@ -1497,24 +1689,24 @@ async function interpret_time(timespec, handle = null) {
 /*
  * Stringify a Date object according to our whims.
  */
-function date_str(date, region) {
+function date_str(date: Date, region: string = ''): string {
   return date.toLocaleString('en-US', {
-    timeZone: tz_for_region[region] || config.tz_default,
+    timeZone: tz_for_region[region] ?? config.tz_default,
     month: 'short',
     day: '2-digit',
   });
 }
-function time_str(date, region) {
+function time_str(date: Date, region: string = ''): string {
   return date.toLocaleString('en-US', {
-    timeZone: tz_for_region[region] || config.tz_default,
+    timeZone: tz_for_region[region] ?? config.tz_default,
     hour: 'numeric',
     minute: 'numeric',
     hour12: true,
   });
 }
-function time_str_short(date, region) {
-  let str = time_str(date, region);
-  let pos = str.indexOf(' ');
+function time_str_short(date: Date, region: string = ''): string {
+  const str = time_str(date, region);
+  const pos = str.indexOf(' ');
   if (pos === -1) return str;
   return str.substr(0, pos);
 }
@@ -1522,13 +1714,13 @@ function time_str_short(date, region) {
 /*
  * Get the raid pop or hatch time from a despawn time.
  */
-function pop_from_despawn(despawn) {
-  let pop = new Date(despawn.getTime());
+function pop_from_despawn(despawn: Date): Date {
+  const pop = new Date(despawn.getTime());
   pop.setMinutes(pop.getMinutes() - egg_duration - boss_duration);
   return pop;
 }
-function hatch_from_despawn(despawn) {
-  let hatch = new Date(despawn.getTime());
+function hatch_from_despawn(despawn: Date): Date {
+  const hatch = new Date(despawn.getTime());
   hatch.setMinutes(hatch.getMinutes() - boss_duration);
   return hatch;
 }
@@ -1536,34 +1728,23 @@ function hatch_from_despawn(despawn) {
 ///////////////////////////////////////////////////////////////////////////////
 // Argument parsing.
 
-/*
- * Extract the minutes and seconds from a raid countdown timer.
- */
-function parse_timer(timer) {
-  let matches = timer.match(/^(\d{1,2}[:.])?(\d{1,2})[:.](\d\d)$/);
-  if (matches === null) return null;
-
-  let [, hrs = 0, mins, secs] = matches;
-  if (secs >= 60) return null;
-
-  return {
-    mins: 60 * parseInt(hrs) + parseInt(mins),
-    secs: parseInt(secs),
-  };
-}
+type BossResult = {
+  boss: string,
+  orig: string
+};
 
 /*
  * Pull the integer tier from a tier string (e.g., '5' or 'T5'), or return null
  * if the string is not tier-like.
  */
-function parse_tier(tier) {
+function parse_tier(tier: string): number | null {
   if (tier.startsWith('T') || tier.startsWith('t')) {
     tier = tier.substr(1);
   }
-  let lower = tier.toLowerCase();
+  const lower = tier.toLowerCase();
   if (lower === 'm' || lower === 'mega') return 6;
 
-  let t = parseInt(tier);
+  const t = parseInt(tier);
   if ('' + t !== tier) return null;
   return (t >= 1 && t <= 5) ? t : null;
 }
@@ -1578,25 +1759,25 @@ function parse_tier(tier) {
  *       boss with minimal edit distance from the input, return it.
  *    4/ Repeat step 3 but for all bosses.
  */
-function parse_boss(input) {
+function parse_boss(input: string): BossResult | null {
   input = input.toLowerCase();
-  input = config.boss_aliases[input] || input;
+  input = config.boss_aliases[input] ?? input;
 
-  let wrap = boss => ({boss: boss, orig: input});
+  const wrap = (boss: string) => ({boss: boss, orig: input});
 
   if (input.length === 0) return null;
 
-  let matches = raid_data.raid_trie.getPrefix(input);
+  const matches = raid_data.raid_trie.getPrefix(input);
   if (matches.length === 1) return wrap(matches[0]);
 
-  let find_match = bosses => {
-    let matches = bosses.map(boss => ({
+  const find_match = (bosses: string[]) => {
+    const matches = bosses.map(boss => ({
       boss: boss,
       substr: (() => {
         if (boss.includes(input)) return true;
 
-        let boss_parts = boss.split('-');
-        let input_parts = input.split('-');
+        const boss_parts = boss.split('-');
+        const input_parts = input.split('-');
 
         if (boss_parts.length !== input_parts.length) return false;
 
@@ -1605,17 +1786,23 @@ function parse_boss(input) {
         }
         return true;
       })(),
-      lev: ed.levenshtein(input, boss, _ => 1, _ => 1, (x, y) => 2 * (x !== y)),
+      lev: ed.levenshtein(
+        input,
+        boss,
+        (_: string) => 1,
+        (_: string) => 1,
+        (x: string, y: string) => 2 * +(x !== y)
+      ),
     }));
 
-    const choose_best = options => {
-      let min_dist = Math.min(...options.map(meta => meta.lev.distance));
+    const choose_best = (options: typeof matches) => {
+      const min_dist = Math.min(...options.map(meta => meta.lev.distance));
       options = options.filter(meta => meta.lev.distance === min_dist);
 
       return options.length === 1 ? wrap(options[0].boss) : null;
     };
 
-    let substrs = matches.filter(meta => meta.substr);
+    const substrs = matches.filter(meta => meta.substr);
     if (substrs.length > 0) return choose_best(substrs);
     return choose_best(matches);
   };
@@ -1633,7 +1820,10 @@ function parse_boss(input) {
  * Extract the boss name from the output of parse_boss(), DM-ing the user if
  * the match was inexact.
  */
-async function extract_boss(msg, boss) {
+async function extract_boss(
+  msg: Discord.Message,
+  boss: BossResult | null,
+): Promise<string | null> {
   if (boss === null) return null;
 
   if (!boss.boss.startsWith(boss.orig)) {
@@ -1644,15 +1834,20 @@ async function extract_boss(msg, boss) {
   return boss.boss;
 }
 
+type ArgUnion = string | number | Date | TimeSpec | Timer | BossResult
+
 /*
  * Parse a single argument `input' according to `kind'.
  */
-function parse_one_arg(input, kind) {
+function parse_one_arg(
+  input: string,
+  kind: Arg
+): ArgUnion | null {
   switch (kind) {
     case Arg.STR:
       return input;
     case Arg.INT: {
-      let i = parseInt(input);
+      const i = parseInt(input);
       return '' + i === input ? i : null;
     }
     case Arg.VARIADIC:
@@ -1667,9 +1862,7 @@ function parse_one_arg(input, kind) {
       return parse_tier(input);
     case Arg.BOSS:
       return parse_boss(input);
-    default: break;
   }
-  return null;
 }
 
 /*
@@ -1680,44 +1873,54 @@ function parse_one_arg(input, kind) {
  * and not found.  If `input' has more or fewer space-separated arguments than
  * `spec' requires, returns null.
  */
-function parse_args(input, spec) {
+function parse_args(
+  input: string,
+  spec: Arg[]
+): (ArgUnion | InvalidArg | null)[] | null {
   input = input.trim();
   if (spec === null) return [input];
 
-  let required = spec.filter(a => a >= 0).length;
+  const required = spec.filter(a => a >= 0).length;
 
   if (input.length === 0) {
     if (required > 0) return null;
     return new Array(spec.length).fill(null);
   }
 
-  let re = /\s+/g;
-  let splits = [{start: 0}];
+  const re = /\s+/g;
+  const splits = [{start: 0, end: -1}];
 
   // Construct an array of {start, end} records representing all the space-
   // separated components of `input'.
   while (true) {
-    let match = re.exec(input);
+    const match = re.exec(input);
     if (match === null) break;
 
     splits[splits.length - 1].end = match.index;
-    splits.push({start: re.lastIndex});
+    splits.push({start: re.lastIndex, end: -1});
   }
   splits[splits.length - 1].end = input.length;
 
   if (splits.length < required) return null;
 
-  let argv = [];
+  let argv: (ArgUnion | InvalidArg | null)[] = [];
   let spec_idx = 0;
   let split_idx = 0;
 
-  let vmeta = null;
+  let vmeta: {
+    argv_idx: number,
+    spec_idx: number,
+    split_idx: number,
+    split_end: number,
+    split_end_orig: number,
+    split_limit: number,
+  };
 
   // We're going to jump through a lot of hoops to avoid writing a backtracking
   // regex matcher to support both * and ?, since we know we have at most one
   // variadic.
-  let backtrack = function() {
-    if (vmeta !== null && ++vmeta.split_end <= vmeta.split_limit) {
+  const backtrack = function() {
+    if (vmeta && ++vmeta.split_end <= vmeta.split_limit) {
       argv = argv.slice(0, vmeta.argv_idx);
       spec_idx = vmeta.spec_idx;
       split_idx = vmeta.split_idx;
@@ -1730,7 +1933,7 @@ function parse_args(input, spec) {
     let num_invalid = 0;
 
     while (spec_idx < spec.length) {
-      let kind = spec[spec_idx++];
+      const kind = spec[spec_idx++];
 
       // Too few arguments.
       if (split_idx >= splits.length) {
@@ -1750,10 +1953,10 @@ function parse_args(input, spec) {
         return null;
       }
 
-      let info = splits[split_idx++];
+      const info = splits[split_idx++];
 
       if (Math.abs(kind) === Arg.VARIADIC) {
-        if (vmeta === null) {
+        if (!vmeta) {
           vmeta = {
             // Indexes of the variadic argument.
             argv_idx: argv.length,
@@ -1763,6 +1966,8 @@ function parse_args(input, spec) {
             // We'll push this out one further if we fail to match as is, until
             // we run out of optional arguments we could potentially bypass.
             split_end: splits.length - (spec.length - spec_idx),
+            split_end_orig: -1,
+            split_limit: -1,
           };
           vmeta.split_end_orig = vmeta.split_end;
           // Threshold for how far we can push split_end out to.
@@ -1772,14 +1977,14 @@ function parse_args(input, spec) {
 
         // Get the variadic component exactly as the user input it.
         split_idx = Math.max(split_idx, vmeta.split_end);
-        let arg = input.substring(info.start, splits[split_idx - 1].end);
+        const arg = input.substring(info.start, splits[split_idx - 1].end);
         argv.push(arg);
         continue;
       }
 
-      let raw = input.substring(info.start, info.end);
-      let arg = parse_one_arg(raw, Math.abs(kind));
-      num_invalid += arg === null;
+      const raw = input.substring(info.start, info.end);
+      const arg = parse_one_arg(raw, Math.abs(kind));
+      num_invalid += +(arg === null);
 
       if (kind >= 0 || spec_idx === spec.length) {
         argv.push(arg !== null ? arg : new InvalidArg(raw));
@@ -1791,7 +1996,7 @@ function parse_args(input, spec) {
       }
     }
 
-    if (vmeta !== null &&
+    if (vmeta &&
         num_invalid > vmeta.split_end - vmeta.split_end_orig
         && backtrack()) {
       continue;
@@ -1810,13 +2015,16 @@ function parse_args(input, spec) {
 ///////////////////////////////////////////////////////////////////////////////
 // General handlers.
 
-function handle_help(msg, req) {
-  let out = null;
+function handle_help(
+  msg: Discord.Message,
+  req: Req | null,
+): Promise<any> {
+  let out: string;
 
   if (req === null) {
     out = get_emoji('team') +
           '  Please choose your request from the following:\n\n';
-    for (let req of req_order) {
+    for (const req of req_order) {
       if (req !== null) {
         out += `\`\$${req}\`:  ${reqs[req].desc}\n`;
       } else {
@@ -1835,7 +2043,7 @@ function handle_help(msg, req) {
       'You can help out at: <https://github.com/mxw/moltres>',
     ].join(' ');
   } else {
-    req = req_aliases[req] || req;
+    req = req_aliases[req] ?? req;
 
     if (!(req in reqs)) {
       return log_invalid(msg, `Invalid request \`${req}\`.`);
@@ -1854,74 +2062,82 @@ function handle_help(msg, req) {
 ///////////////////////////////////////////////////////////////////////////////
 // Config handlers.
 
-async function handle_set_perm(msg, user_tag, req) {
+async function handle_set_perm(
+  msg: Discord.Message,
+  user_tag: string,
+  req: string,
+): Promise<any> {
   if (!user_tag.match(Discord.MessageMentions.USERS_PATTERN) ||
       msg.mentions.users.size !== 1) {
     return log_invalid(msg, `Invalid user tag \`${user_tag}\`.`);
   }
-  let user = msg.mentions.users.first();
+  const user = msg.mentions.users.first();
 
-  let [result, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'INSERT INTO permissions SET ?',
-    { cmd: req,
-      user_id: user.id, }
+    { cmd: req, user_id: user.id, }
   );
-  if (err) {
-    if (err.code === 'ER_DUP_ENTRY') {
-      [result, err] = await moltresdb.query(
+  if (isErr(result)) {
+    if (result.err.code === 'ER_DUP_ENTRY') {
+      const result = await moltresdb.query<mysql.UpdateResult>(
         'DELETE FROM permissions WHERE ?',
-        { cmd: req,
-          user_id: user.id, }
+        { cmd: req, user_id: user.id, }
       );
-      if (err) {
-        return log_mysql_error(msg, err);
+      if (isErr(result)) {
+        return log_mysql_error(msg, result.err);
       }
     }
-    return log_mysql_error(msg, err);
+    return log_mysql_error(msg, result.err);
   }
 
-  if (result.affectedRows === 0) {
+  if (result.ok.affectedRows === 0) {
     return log_invalid(msg, 'Unknown failure.');
   }
   return react_success(msg);
 }
 
-async function handle_ls_perms(msg) {
-  let [results, err] = await moltresdb.query(
+async function handle_ls_perms(msg: Discord.Message): Promise<any> {
+  const result = await moltresdb.query<PermissionRow>(
     'SELECT * FROM permissions'
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  let perms = {};
+  const perms: Partial<Record<Req, Discord.Snowflake[]>> = {};
 
-  for (let row of results) {
-    perms[row.cmd] = perms[row.cmd] || [];
+  for (const row of result.ok) {
+    perms[row.cmd] = perms[row.cmd] ?? [];
 
-    let member = await guild().members.fetch(row.user_id);
-    if (!member) continue;
+    try {
+      const member = await guild().members.fetch(row.user_id);
+      if (!member) continue;
 
-    perms[row.cmd].push(member.nickname || member.user.username);
+      perms[row.cmd].push(member.nickname ?? member.user.username);
+    } catch (e) {
+      continue;
+    }
   }
 
-  let outvec = [];
+  const outvec = [];
 
-  for (let req in perms) {
+  for (const req_ in perms) {
+    const req = req_ as Req;
     if (perms[req].length === 0) continue;
     perms[req].sort();
 
     let example_req = req;
 
     // Just loop through the permissions alias table to find an example.
-    for (let ex in req_to_perm) {
+    for (const ex_ in req_to_perm) {
+      const ex = ex_ as Req;
       if (req_to_perm[ex] === req) {
         example_req = ex;
         break;
       }
     }
-    let perm = reqs[example_req].perms;
-    let perm_str = perm === Permission.WHITELIST ? 'whitelist' :
-                   perm === Permission.BLACKLIST ? 'blacklist' :
-                   'unknown';
+    const perm = reqs[example_req].perms;
+    const perm_str = perm === Permission.WHITELIST ? 'whitelist' :
+                     perm === Permission.BLACKLIST ? 'blacklist' :
+                     'unknown';
 
     outvec.push(`\`${req}\` [${perm_str}]:\t` + perms[req].join(', '));
   }
@@ -1930,26 +2146,30 @@ async function handle_ls_perms(msg) {
   );
 }
 
-async function handle_add_boss(msg, boss, tier) {
+async function handle_add_boss(
+  msg: Discord.Message,
+  boss: string,
+  tier: number | InvalidArg,
+): Promise<any> {
   if (tier instanceof InvalidArg) {
     return log_invalid(msg, `Invalid raid tier \`${tier.arg}\`.`);
   }
   boss = boss.toLowerCase();
 
-  let old_tier = raid_data.raid_tiers[boss];
+  const old_tier = raid_data.raid_tiers[boss];
 
-  let [, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'REPLACE INTO bosses SET ?',
     { boss: boss, tier: tier }
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
   if (!!old_tier) {
     raid_data.bosses_for_tier[old_tier] =
       raid_data.bosses_for_tier[old_tier].filter(b => b !== boss);
   }
   raid_data.raid_tiers[boss] = tier;
-  raid_data.bosses_for_tier[tier] = raid_data.bosses_for_tier[tier] || [];
+  raid_data.bosses_for_tier[tier] = raid_data.bosses_for_tier[tier] ?? [];
   raid_data.bosses_for_tier[tier].push(boss);
   raid_data.bosses_for_tier[tier].sort();
   raid_data.raid_trie = trie(Object.keys(raid_data.raid_tiers));
@@ -1957,17 +2177,20 @@ async function handle_add_boss(msg, boss, tier) {
   return react_success(msg);
 }
 
-async function handle_rm_boss(msg, boss) {
+async function handle_rm_boss(
+  msg: Discord.Message,
+  boss: string,
+): Promise<any> {
   if (!(boss in raid_data.raid_tiers)) {
     return log_invalid(msg, `Unregistered raid boss \`${boss}\`.`);
   }
-  let tier = raid_data.raid_tiers[boss];
+  const tier = raid_data.raid_tiers[boss];
 
-  let [, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'DELETE FROM bosses WHERE `boss` = ?',
     [boss]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
   delete raid_data.raid_tiers[boss];
   raid_data.bosses_for_tier[tier] =
@@ -1977,23 +2200,28 @@ async function handle_rm_boss(msg, boss) {
   return react_success(msg);
 }
 
-async function handle_def_boss(msg, boss) {
-  let tier = raid_data.raid_tiers[boss];
+async function handle_def_boss(
+  msg: Discord.Message,
+  boss_or_tier: string,
+): Promise<any> {
+  let tier = raid_data.raid_tiers[boss_or_tier];
+  let boss = boss_or_tier;
+
   if (!tier) {
-    tier = parse_tier(boss);
+    tier = parse_tier(boss_or_tier);
     boss = null;
     if (tier === null) {
-      return log_invalid(msg, `Unregistered raid boss \`${boss}\`.`);
+      return log_invalid(msg, `Unregistered raid boss \`${boss_or_tier}\`.`);
     }
   }
 
-  let [, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'UPDATE bosses ' +
     '  SET `is_default` = CASE WHEN `boss` = ? THEN 1 ELSE 0 END ' +
     '  WHERE `tier` = ?',
     [boss, tier]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
   raid_data.boss_defaults[tier] = boss;
 
@@ -2003,41 +2231,53 @@ async function handle_def_boss(msg, boss) {
 ///////////////////////////////////////////////////////////////////////////////
 // Developer handlers.
 
-function handle_reload_config(msg) {
-  delete require.cache[require.resolve('./config.js')];
-  delete require.cache[require.resolve('./emoji.js')];
+function handle_reload_config(msg: Discord.Message): Promise<any> {
+  delete require.cache[require.resolve('moltres-config')];
+  delete require.cache[require.resolve('util/emoji')];
 
-  emoji_by_name = require('./emoji.js');
-  config = require('./config.js');
+  config = require('moltres-config');
+  emoji_by_name = require('util/emoji').emoji_by_name;
   channels_for_region = compute_region_channel_map();
   tz_for_region = compute_region_tz_map();
 
   return react_success(msg);
 }
 
-async function handle_raidday(msg, boss, despawn) {
-  if (boss instanceof InvalidArg) {
-    return log_invalid(msg, `Invalid raid boss \`${boss.arg}\`.`);
+async function handle_raidday(
+  msg: Discord.Message,
+  boss_: BossResult | InvalidArg,
+  despawn_: TimeSpec | InvalidArg,
+): Promise<any> {
+  if (boss_ instanceof InvalidArg) {
+    return log_invalid(msg, `Invalid raid boss \`${boss_.arg}\`.`);
   }
-  if (despawn instanceof InvalidArg) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${despawn.arg}\`.`);
+  if (despawn_ instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${despawn_.arg}\`.`);
   }
-  if (despawn === 'hatch') {
+  if (despawn_ === 'hatch') {
     return log_invalid(msg, `Unrecognized HH:MM time \`hatch\`.`);
   }
-  despawn = await interpret_time(despawn);
+  const boss = await extract_boss(msg, boss_);
+  const despawn = await interpret_time(despawn_);
 
-  return moltresdb.query(
+  return moltresdb.query<mysql.UpdateResult>(
     'REPLACE INTO raids (`gym_id`, `tier`, `boss`,  `despawn`, `spotter`) ' +
     '   SELECT `id`, ?, ?, ?, ? FROM gyms',
     [raid_data.raid_tiers[boss], boss, despawn, msg.author.id]
   );
 }
 
-async function handle_test(msg, args) {
-  let tests = require('./tests.js');
+async function handle_test(
+  msg: Discord.Message,
+  args: string,
+): Promise<any> {
+  /*
+  const tests = require('./tests.js');
 
-  let argv_equals = function(l, r) {
+  const argv_equals = function(
+    l: (ArgUnion | InvalidArg)[],
+    r: (ArgUnion | InvalidArg)[],
+  ): boolean {
     if (r === null) return l === null;
     if (l.length !== r.length) return false;
 
@@ -2045,17 +2285,32 @@ async function handle_test(msg, args) {
       if (l[i] === r[i]) continue;
 
       if (l[i] instanceof Date) {
-        let d = parse_hour_minute(r[i]);
-        if (l[i].getTime() === d.getTime()) continue;
+        const d = parse_month_day(r[i] as string);
+        if ((l[i] as Date).getTime() === d.getTime()) continue;
       }
-      if (l[i].mins && l[i].secs &&
-          l[i].mins === r[i].mins &&
-          l[i].secs === r[i].secs) {
-        continue;
+      // @ts-ignore
+      if (l[i] === 'hatch' || (l[i].hours && l[i].mins)) {
+        const l_i = l[i] as TimeSpec;
+        const r_i = r[i] as TimeSpec;
+
+        if (l_i === 'hatch' && r_i === 'hatch') continue;
+        if (l_i !== 'hatch' && r_i !== 'hatch') {
+          if (l_i.mins === r_i.mins && l_i.secs === r_i.secs) continue;
+        }
+      }
+      // @ts-ignore
+      if (l[i] === 'hatch' || (l[i].mins && l[i].secs)) {
+        const l_i = l[i] as TimeSpec;
+        const r_i = r[i] as TimeSpec;
+
+        if (l_i === 'hatch' && r_i === 'hatch') continue;
+        if (l_i !== 'hatch' && r_i !== 'hatch') {
+          if (l_i.mins === r_i.mins && l_i.secs === r_i.secs) continue;
+        }
       }
       if (l[i] instanceof InvalidArg &&
           r[i] instanceof InvalidArg &&
-          l[i].arg === r[i].arg) {
+          (l[i] as InvalidArg).arg === (r[i] as InvalidArg).arg) {
         continue;
       }
       return false;
@@ -2063,11 +2318,11 @@ async function handle_test(msg, args) {
     return true;
   }
 
-  for (let test of tests.parse_args) {
+  for (const test of tests.parse_args) {
     let spec = test.spec;
     if (typeof spec === 'string') spec = reqs[spec].args;
 
-    let result = parse_args(test.args, spec);
+    const result = parse_args(test.args, spec);
     console.assert(
       argv_equals(result, test.expect),
       `parse_args(): failed on input ${test.args} with ${spec}
@@ -2076,6 +2331,7 @@ async function handle_test(msg, args) {
     );
   }
   console.log('$test: parse_args() tests passed.');
+  */
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2086,7 +2342,11 @@ async function handle_test(msg, args) {
  *
  * Returns true if we have a single result, else false.
  */
-async function check_one_gym(msg, handle, results) {
+async function check_one_gym(
+  msg: Discord.Message,
+  handle: string,
+  results: Gym[],
+): Promise<boolean> {
   if (results.length < 1) {
     await send_quiet(msg.channel,
       `Zero or multiple gyms found matching \`[${handle}]\`.` +
@@ -2106,7 +2366,7 @@ async function check_one_gym(msg, handle, results) {
 /*
  * Canonical display of a gym's name when we have a whole table row.
  */
-function gym_name(gym) {
+function gym_name(gym: Gym): string {
   let name = `\`[${gym.handle}]\` **${gym.name}**`;
   if (gym.ex) name += ' (EX!)';
   return name;
@@ -2115,7 +2375,7 @@ function gym_name(gym) {
 /*
  * Stringify a row from the gyms table.
  */
-function gym_row_to_string(gym) {
+function gym_row_to_string(gym: Gym): string {
   return `\`[${gym.handle}]\`
 name: **${gym.name}**${gym.ex ? ' (EX!)' : ''}
 region: ${gym.region}
@@ -2128,11 +2388,15 @@ coords: <https://maps.google.com/maps?q=${gym.lat},${gym.lng}>`;
  * If `is_valid' is supplied, we verify that it returns true for each gym, and
  * return null if it ever fails.
  */
-function list_gyms(gyms, incl_region = true, is_valid = null) {
-  let output = [];
+function list_gyms(
+  gyms: Gym[],
+  incl_region: boolean = true,
+  is_valid?: (gym: Gym) => boolean,
+): string | null {
+  const output = [];
 
-  for (let gym of gyms) {
-    if (is_valid !== null && !is_valid(gym)) return null;
+  for (const gym of gyms) {
+    if (is_valid && !is_valid(gym)) return null;
 
     let str = `\`[${gym.handle}]\` ${gym.name}`;
     if (gym.ex) str += ' **(EX!)**';
@@ -2142,71 +2406,81 @@ function list_gyms(gyms, incl_region = true, is_valid = null) {
   return output.join('\n');
 }
 
-async function handle_gym(msg, name) {
-  let [results, err] = await moltresdb.query(
+async function handle_gym(
+  msg: Discord.Message,
+  name: string,
+): Promise<any> {
+  let result = await moltresdb.query<Gym>(
     'SELECT * FROM gyms WHERE ' + where_one_gym(name)
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  if (results.length === 1) {
-    let [gym] = results;
+  if (result.ok.length === 1) {
+    const [gym] = result.ok;
     return send_quiet(msg.channel, gym_row_to_string(gym));
   }
 
-  let handle = name.replace(/ /g, '-');
+  const handle = name.replace(/ /g, '-');
 
-  [results, err] = await moltresdb.query(
+  result = await moltresdb.query<Gym>(
     'SELECT * FROM gyms WHERE handle LIKE ? OR name LIKE ?',
     [`%${handle}%`, `%${name}%`]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  if (results.length === 0) {
+  if (result.ok.length === 0) {
     return send_quiet(msg.channel,
       `No gyms with handle or name matching ${name}.`
     );
   }
-  let output = `Gyms matching \`${name}\`:\n\n` + list_gyms(results);
+  const output = `Gyms matching \`${name}\`:\n\n` + list_gyms(result.ok);
   return send_quiet(msg.channel, output);
 }
 
-async function handle_ls_gyms(msg, region) {
-  let region_clause = where_region(region);
+async function handle_ls_gyms(
+  msg: Discord.Message,
+  region: string,
+): Promise<any> {
+  const region_clause = where_region(region);
 
-  let [results, err] = await moltresdb.query(
+  const result = await moltresdb.query<Gym>(
     'SELECT * FROM gyms WHERE ' + region_clause.sql
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
+  const rows = result.ok;
 
-  if (results.length === 0) {
+  if (rows.length === 0) {
     return log_invalid(msg, `Invalid region name \`${region}\`.`);
   }
-  let is_meta = region_clause.meta !== null;
-  let out_region = is_meta ? region_clause.meta : results[0].region;
+  const is_meta = region_clause.meta !== null;
+  const out_region = is_meta ? region_clause.meta : rows[0].region;
 
-  let gym_list = list_gyms(results, false,
+  const gym_list = list_gyms(rows, false,
     gym => (is_meta || gym.region === out_region)
   );
   if (gym_list === null) {
     return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
   }
 
-  let output = `Gyms in **${out_region}**:\n\n` + gym_list;
+  const output = `Gyms in **${out_region}**:\n\n` + gym_list;
   return send_quiet(msg.channel, output);
-}
-
-async function handle_search_gym(msg, name) {
 }
 
 /*
  * Preprocess inputs for $add-gym and $edit-gym.
  */
-function fixup_gym_params(handle, region, lat, lng, name) {
+function fixup_gym_params(
+  handle: string,
+  region: string,
+  lat: string,
+  lng: string,
+  name: string,
+) {
   return {
     handle: handle.toLowerCase(),
     name: name,
     region: region.replace(/-/g, ' '),
-    lat: lat.slice(-1) === ',' ? lat.slice(0, -1) : lat,
+    lat: (lat.slice(-1) === ',' ? lat.slice(0, -1) : lat),
     lng: lng,
   };
 }
@@ -2214,69 +2488,84 @@ function fixup_gym_params(handle, region, lat, lng, name) {
 /*
  * Shared error handling for gym table mutations.
  */
-function log_gym_table_error(msg, result, err) {
-  if (err) return log_mysql_error(msg, err);
+function log_gym_table_error(
+  msg: Discord.Message,
+  result: mysql.QueryResult<mysql.UpdateResult>,
+): Promise<any> {
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  if (result.affectedRows === 0) {
+  if (result.ok.affectedRows === 0) {
     return log_invalid(msg, 'Unknown failure.');
   }
   return react_success(msg);
 }
 
-async function handle_add_gym(msg, ...params) {
-  let assignment = fixup_gym_params(...params);
+async function handle_add_gym(
+  msg: Discord.Message,
+  ...params: [string, string, string, string, string]
+): Promise<any> {
+  const assignment = fixup_gym_params(...params);
 
-  let [result, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'INSERT INTO gyms SET ?',
     assignment
   );
-  return log_gym_table_error(msg, result, err);
+  return log_gym_table_error(msg, result);
 }
 
-async function handle_edit_gym(msg, handle, ...params) {
-  let assignment = fixup_gym_params(handle, ...params);
+async function handle_edit_gym(
+  msg: Discord.Message,
+  handle: string,
+  ...params: [string, string, string, string]
+): Promise<any> {
+  const assignment = fixup_gym_params(handle, ...params);
   delete assignment.handle;
 
-  let [result, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'UPDATE gyms SET ? WHERE handle = ?',
     [assignment, handle.toLowerCase()]
   );
-  return log_gym_table_error(msg, result, err);
+  return log_gym_table_error(msg, result);
 }
 
-async function handle_mv_gym(msg, old_handle, new_handle) {
+async function handle_mv_gym(
+  msg: Discord.Message,
+  old_handle: string,
+  new_handle: string,
+): Promise<any> {
   old_handle = old_handle.toLowerCase();
   new_handle = new_handle.toLowerCase();
 
-  let [result, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'UPDATE gyms SET handle = ? WHERE handle = ?',
     [new_handle, old_handle]
   );
-  return log_gym_table_error(msg, result, err);
+  return log_gym_table_error(msg, result);
 }
 
-async function handle_ls_regions(msg) {
-  let [results, err] = await moltresdb.query(
+async function handle_ls_regions(msg: Discord.Message): Promise<any> {
+  const result = await moltresdb.query<Pick<Gym, 'region'>>(
     'SELECT region FROM gyms GROUP BY region'
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
+  const rows = result.ok;
 
-  if (results.length === 0) {
+  if (rows.length === 0) {
     return send_quiet(msg.channel, 'No gyms have been registered.');
   }
-  let regions = new Set(results.map(gym => gym.region));
+  const regions = new Set(rows.map(gym => gym.region));
 
-  let region_strs = Object.keys(config.metaregions).map(meta => {
+  const region_strs = Object.keys(config.metaregions).map(meta => {
     regions.delete(meta);
-    let subregions = config.metaregions[meta];
-    for (let sr of subregions) regions.delete(sr);
+    const subregions = config.metaregions[meta];
+    for (const sr of subregions) regions.delete(sr);
     return `**${meta}** (_${subregions.join(', ')}_)`
   }).concat(
     [...regions].map(r => `**${r}**`)
   ).sort();
 
-  let output = 'List of **regions** with **registered gyms**:\n\n' +
-               region_strs.join('\n');
+  const output = 'List of **regions** with **registered gyms**:\n\n' +
+                 region_strs.join('\n');
   return send_quiet(msg.channel, output);
 }
 
@@ -2286,31 +2575,31 @@ async function handle_ls_regions(msg) {
 /*
  * Whether call times should be displayed in response to `msg'.
  */
-function should_display_calls(msg) {
+function should_display_calls(msg: Discord.Message): boolean {
   return !config.call_check || config.call_check(msg, guild());
 }
 
 /*
  * Canonicalize a tier for display.
  */
-function fmt_tier(tier) {
+function fmt_tier(tier: number): string {
   return tier === 6 ? 'Mega' : `T${tier}`;
 }
 
 /*
  * Canonicalize a raid boss name.
  */
-function fmt_boss(boss) {
+function fmt_boss(boss: string): string {
   return boss.split('-').map(capitalize).join(' ');
 }
 
 /*
  * Canonical string for displaying a raid boss from a raids table row.
  */
-function fmt_tier_boss(raid) {
-  let tier = raid.tier;
+function fmt_tier_boss(raid: Raid): string {
+  const tier = raid.tier;
 
-  let boss = raid.boss !== null
+  const boss = raid.boss !== null
     ? fmt_boss(raid.boss)
     : (tier < raid_data.bosses_for_tier.length &&
        raid_data.boss_defaults[tier])
@@ -2323,9 +2612,9 @@ function fmt_tier_boss(raid) {
 /*
  * Get a canonical notification string for a report for `raid'.
  */
-function raid_report_notif(raid) {
-  let now = get_now();
-  let hatch = hatch_from_despawn(raid.despawn);
+function raid_report_notif(raid: Gym & Raid): string {
+  const now = get_now();
+  const hatch = hatch_from_despawn(raid.despawn);
 
   if (now < hatch) {
     return `${get_emoji('raidegg')} **${fmt_tier(raid.tier)} egg** ` +
@@ -2338,19 +2627,25 @@ function raid_report_notif(raid) {
 /*
  * Fetch and send a raid report notification for `msg' at `handle'.
  */
-async function send_raid_report_notif(msg, handle, verbed, anon = false) {
-  let [results, err] = await moltresdb.query(
+async function send_raid_report_notif(
+  msg: Discord.Message,
+  handle: string,
+  verbed: string,
+  anon: boolean = false,
+): Promise<any> {
+  const result = await moltresdb.query<Gym & Raid>(
     'SELECT * FROM gyms ' +
     '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
     '   WHERE ' + where_one_gym(handle)
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
+  const rows = result.ok;
 
-  let found_one = await check_one_gym(msg, handle, results);
+  const found_one = await check_one_gym(msg, handle, rows);
   if (!found_one) return;
-  let [raid] = results;
+  const [raid] = rows;
 
-  let output =
+  const output =
     raid_report_notif(raid) + ` (${verbed} ` +
     (anon
       ? 'anonymously'
@@ -2359,31 +2654,34 @@ async function send_raid_report_notif(msg, handle, verbed, anon = false) {
 
   await send_for_region(raid.region, output);
 
-  if (from_dm(msg)) {
-    return dm_quiet(msg.author, output);
-  }
-  return try_delete(msg, 10000);
+  return from_dm(msg)
+    ? dm_quiet(msg.author, output)
+    : try_delete(msg, 10000);
 }
 
-async function handle_raid(msg, handle) {
-  let now = get_now();
+async function handle_raid(
+  msg: Discord.Message,
+  handle: string,
+): Promise<any> {
+  const now = get_now();
 
-  let [results, err] = await select_rsvps(handle);
-  if (err) return log_mysql_error(msg, err);
+  const result = await select_rsvps(handle);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
+  const rows = result.ok;
 
-  if (results.length < 1) {
+  if (rows.length < 1) {
     await chain_reaccs(msg, 'no_entry_sign', 'raidegg');
     return send_quiet(msg.channel,
       `No unique raid found for \`[${handle}]\`.`
     );
   }
-  let [{gyms, raids, calls}] = results;
+  const [{gyms, raids, calls}] = rows;
 
   if (raids.despawn < now) {
     return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
   }
 
-  let hatch = hatch_from_despawn(raids.despawn);
+  const hatch = hatch_from_despawn(raids.despawn);
 
   let output = gym_row_to_string(gyms) + '\n';
   if (now >= hatch) {
@@ -2403,12 +2701,12 @@ hatch: ${time_str(hatch, gyms.region)}`;
   if (calls.time !== null && should_display_calls(msg)) {
     output += '\n\ncall time(s):';
 
-    let times = [];
-    let rows_by_time = {};
+    const times: number[] = [];
+    const rows_by_time: Record<number, FullJoinTableRow[]> = {};
 
     // Order and de-dup the call times and bucket rows by those times.
-    for (let row of results) {
-      let t = row.calls.time.getTime();
+    for (const row of rows) {
+      const t = row.calls.time.getTime();
 
       if (!(t in rows_by_time)) {
         times.push(t);
@@ -2419,37 +2717,39 @@ hatch: ${time_str(hatch, gyms.region)}`;
     times.sort();
 
     // Append details for each call time.
-    for (let t of times) {
-      let [{calls}] = rows_by_time[t];
+    for (const t of times) {
+      const [{calls}] = rows_by_time[t];
 
-      let caller_rsvp = null;
+      let caller_rsvp: Join;
       let total = 0;
 
       // Get an array of attendee strings, removing the raid time caller.
-      let attendees = await Promise.all(rows_by_time[t].map(async (row) => {
-        let member = await guild().members.fetch(row.rsvps.user_id);
-        if (!member) return null;
+      let attendees = await Promise.all(rows_by_time[t].map(
+        async (row: FullJoinTableRow): Promise<string | null> => {
+          const member = await guild().members.fetch(row.rsvps.user_id);
+          if (!member) return null;
 
-        total += (row.rsvps.extras + 1);
+          total += (row.rsvps.extras + 1);
 
-        if (member.user.id === calls.caller) {
-          caller_rsvp = row.rsvps;
-          return null;
+          if (member.user.id === calls.caller) {
+            caller_rsvp = row.rsvps;
+            return null;
+          }
+
+          const extras = row.rsvps.extras !== 0
+            ? ` +${row.rsvps.extras}`
+            : '';
+          return `${member.nickname ?? member.user.username}${extras}`
         }
-
-        let extras = row.rsvps.extras !== 0
-          ? ` +${row.rsvps.extras}`
-          : '';
-        return `${member.nickname || member.user.username}${extras}`
-      }));
+      ));
       attendees = attendees.filter(a => a !== null);
 
       let caller_str = '';
 
-      if (caller_rsvp !== null) {
-        let caller = await guild().members.fetch(calls.caller);
+      if (caller_rsvp) {
+        const caller = await guild().members.fetch(calls.caller);
         caller_str =
-          `${caller.nickname || caller.user.username} _(caller)_` +
+          `${caller.nickname ?? caller.user.username} _(caller)_` +
           (caller_rsvp.extras !== 0 ? ` +${caller_rsvp.extras}` : '') +
           (attendees.length !== 0 ? ', ' : '');
       }
@@ -2461,8 +2761,12 @@ hatch: ${time_str(hatch, gyms.region)}`;
   return send_quiet(msg.channel, output);
 }
 
-async function handle_ls_raids(msg, tier, region) {
-  let now = get_now();
+async function handle_ls_raids(
+  msg: Discord.Message,
+  tier: number,
+  region: string | null,
+): Promise<any> {
+  const now = get_now();
 
   let region_clause = {meta: config.area, sql: 'TRUE'};
   let is_meta = true;
@@ -2472,7 +2776,7 @@ async function handle_ls_raids(msg, tier, region) {
     is_meta = region_clause.meta !== null;
   }
 
-  let [results, err] = await moltresdb.query({
+  const result = await moltresdb.query<CallJoinTableRow>({
     sql:
       'SELECT * FROM gyms ' +
       '   INNER JOIN raids ON gyms.id = raids.gym_id ' +
@@ -2483,37 +2787,38 @@ async function handle_ls_raids(msg, tier, region) {
     values: [now],
     nestTables: true,
   });
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
+  const rows = result.ok;
 
-  if (results.length === 0) {
+  if (rows.length === 0) {
     return chain_reaccs(msg, 'no_entry_sign', 'raidegg');
   }
 
-  let out_region = is_meta ? region_clause.meta : results[0].gyms.region;
-  let rows_by_raid = {};
+  const out_region = is_meta ? region_clause.meta : rows[0].gyms.region;
+  const rows_by_raid: Record<string, CallJoinTableRow[]> = {};
 
-  for (let row of results) {
+  for (const row of rows) {
     if (!is_meta && row.gyms.region !== out_region) {
       return log_invalid(msg, `Ambiguous region name \`${region}\`.`);
     }
     if (tier && row.raids.tier !== tier) continue;
 
-    let handle = row.gyms.handle;
-    rows_by_raid[handle] = rows_by_raid[handle] || [];
+    const handle = row.gyms.handle;
+    rows_by_raid[handle] = rows_by_raid[handle] ?? [];
     rows_by_raid[handle].push(row);
   }
 
-  let raids_expr = tier ? `**${fmt_tier(tier)} raids**` : 'raids';
+  const raids_expr = tier ? `**${fmt_tier(tier)} raids**` : 'raids';
   let output = `Active ${raids_expr} in **${out_region}**:\n`;
 
-  for (let handle in rows_by_raid) {
-    let [{gyms, raids, calls}] = rows_by_raid[handle];
+  for (const handle in rows_by_raid) {
+    const [{gyms, raids, calls}] = rows_by_raid[handle];
 
-    let hatch = hatch_from_despawn(raids.despawn);
-    let boss = hatch > now
+    const hatch = hatch_from_despawn(raids.despawn);
+    const boss = hatch > now
       ? `${fmt_tier(raids.tier)} egg`
       : fmt_tier_boss(raids);
-    let timer_str = hatch > now
+    const timer_str = hatch > now
       ? `hatches at ${time_str(hatch, gyms.region)}`
       : `despawns at ${time_str(raids.despawn, gyms.region)}`
 
@@ -2523,7 +2828,7 @@ async function handle_ls_raids(msg, tier, region) {
     }
 
     if (calls.time !== null && should_display_calls(msg)) {
-      let times = rows_by_raid[handle]
+      const times = rows_by_raid[handle]
         .map(row => time_str(row.calls.time, gyms.region))
         .join(', ');
       output += `\n\tcalled time(s): ${times}`;
@@ -2536,30 +2841,34 @@ async function handle_ls_raids(msg, tier, region) {
   }
 }
 
-async function handle_report(msg, handle, tier, boss, timer, mods) {
+async function handle_report(
+  msg: Discord.Message,
+  handle: string,
+  tier: number | InvalidArg,
+  boss_: BossResult | null,
+  timer: Timer | InvalidArg,
+  mods: Mod,
+): Promise<any> {
   if (tier instanceof InvalidArg) {
     return log_invalid(msg, `Invalid raid tier \`${tier.arg}\`.`);
-  }
-  if (boss instanceof InvalidArg) {
-    return log_invalid(msg, `Invalid raid boss \`${boss.arg}\`.`);
   }
   if (timer instanceof InvalidArg) {
     return log_invalid(msg, `Invalid [HH:]MM:SS timer \`${timer.arg}\`.`);
   }
 
-  boss = await extract_boss(msg, boss);
+  const boss = await extract_boss(msg, boss_);
 
-  let egg_adjust = boss === null ? boss_duration : 0;
+  const egg_adjust = boss === null ? boss_duration : 0;
 
-  let now = get_now();
-  let despawn = now;
+  const now = get_now();
+  const despawn = now;
   despawn.setMinutes(despawn.getMinutes() + timer.mins + egg_adjust);
   despawn.setSeconds(despawn.getSeconds() + timer.secs);
 
-  let hatch = hatch_from_despawn(despawn);
+  const hatch = hatch_from_despawn(despawn);
   hatch.setMinutes(hatch.getMinutes() + 1);
 
-  let [result, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'REPLACE INTO raids (gym_id, tier, boss, despawn, spotter) ' +
     '   SELECT gyms.id, ?, ?, ?, ? FROM gyms ' +
     '   WHERE ' + where_one_gym(handle) +
@@ -2573,57 +2882,73 @@ async function handle_report(msg, handle, tier, boss, timer, mods) {
     ),
     [tier, boss, despawn, msg.author.id, hatch, now]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  if (result.affectedRows === 0) {
-    let [call_rows, gym] = await query_for_error(msg, handle);
+  if (result.ok.affectedRows === 0) {
+    const {call_rows, gym} = await query_for_error(msg, handle);
     if (!gym) return;
 
     return log_invalid(msg,
       `Raid already reported for ${gym_name(gym)}.`
     );
   }
-  return send_raid_report_notif(msg, handle, 'reported', mods & Mod.ANON);
+  return send_raid_report_notif(msg, handle, 'reported', !!(mods & Mod.ANON));
 }
 
-function handle_egg(msg, handle, tier, timer, mods) {
+function handle_egg(
+  msg: Discord.Message,
+  handle: string,
+  tier: number | InvalidArg,
+  timer: Timer | InvalidArg,
+  mods: Mod,
+): Promise<any> {
   return handle_report(msg, handle, tier, null, timer, mods);
 }
 
-function handle_boss(msg, handle, boss, timer, mods) {
-  if (boss === null) {
-    return log_invalid(msg, `Unrecognized raid boss \`${boss}\`.`);
+function handle_boss(
+  msg: Discord.Message,
+  handle: string,
+  boss: BossResult | InvalidArg,
+  timer: Timer | InvalidArg,
+  mods: Mod,
+): Promise<any> {
+  if (boss instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized raid boss \`${boss.arg}\`.`);
   }
   return handle_report(
     msg, handle, raid_data.raid_tiers[boss.boss], boss, timer, mods
   );
 }
 
-async function handle_update(msg, handle, data, mods) {
-  let data_lower = data.toLowerCase();
+async function handle_update(
+  msg: Discord.Message,
+  handle: string,
+  data: string,
+  mods: Mod,
+): Promise<any> {
+  const data_lower = data.toLowerCase();
 
-  let now = get_now();
+  const now = get_now();
 
-  let assignment = await (async() => {
+  const assignment = await (async () => {
     if (data_lower === 'valor' ||
         data_lower === 'mystic' ||
         data_lower === 'instinct') {
       return { team: data_lower };
     }
 
-    let tier = parse_tier(data);
+    const tier = parse_tier(data);
     if (tier !== null) {
       return { tier: tier };
     }
 
-    let boss = await extract_boss(msg, parse_boss(data_lower));
+    const boss = await extract_boss(msg, parse_boss(data_lower));
     if (boss !== null) {
       return {
         tier: raid_data.raid_tiers[boss],
         boss: boss,
       };
     }
-
     return null;
   })();
 
@@ -2631,20 +2956,20 @@ async function handle_update(msg, handle, data, mods) {
     return log_invalid(msg, `Invalid update parameter \`${data}\`.`);
   }
 
-  let [result, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'UPDATE raids INNER JOIN gyms ON raids.gym_id = gyms.id ' +
     '   SET ? ' +
     '   WHERE ' + where_one_gym(handle) +
     '     AND raids.despawn > ? ',
     [assignment, now]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  if (result.affectedRows === 0) {
-    let [call_rows, gym] = await query_for_error(msg, handle);
+  if (result.ok.affectedRows === 0) {
+    const {call_rows, gym} = await query_for_error(msg, handle);
     if (!gym) return;
 
-    let [{raids}] = call_rows;
+    const [{raids}] = call_rows;
     if (raids.gym_id === null) {
       return log_invalid(msg,
         `No raid has been reported at ${gym_name(gym)}.`
@@ -2653,55 +2978,59 @@ async function handle_update(msg, handle, data, mods) {
     return log_invalid(msg, 'An unknown error occurred.');
   }
 
-  if (result.changedRows === 0) {
+  if (result.ok.changedRows === 0) {
     return send_quiet(msg.channel, 'Your update made no changes.');
   }
   if ('tier' in assignment) {
-    return send_raid_report_notif(msg, handle, 'updated', mods & Mod.ANON);
+    return send_raid_report_notif(msg, handle, 'updated', !!(mods & Mod.ANON));
   }
   return react_success(msg);
 }
 
-async function handle_scrub(msg, handle) {
-  let [results, err] = await moltresdb.query(
+async function handle_scrub(
+  msg: Discord.Message,
+  handle: string,
+): Promise<any> {
+  const result = await moltresdb.query<Gym & Raid>(
     'SELECT * FROM ' +
     '   gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
     '   WHERE ' + where_one_gym(handle)
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
+  const rows = result.ok;
 
-  let found_one = await check_one_gym(msg, handle, results);
+  const found_one = await check_one_gym(msg, handle, rows);
   if (!found_one) return;
-  let [raid] = results;
+  const [raid] = rows;
 
   if (raid.spotter !== msg.author.id &&
       !config.admin_ids.has(msg.author.id)) {
     return log_invalid(msg, 'Raids can only be scrubbed by their reporter.');
   }
 
-  [, err] = await moltresdb.query(
+  const del_res = await moltresdb.query<mysql.UpdateResult>(
     'DELETE FROM raids WHERE gym_id = ?',
     [raid.gym_id]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(del_res)) return log_mysql_error(msg, del_res.err);
 
-  let spotter = await guild().members.fetch(raid.spotter);
-  if (!spotter) spotter = '[unknown user]';
+  const spotter = await guild().members.fetch(raid.spotter);
+  const spotter_name = spotter ? spotter.toString() : '[unknown user]';
 
   return send_for_region(raid.region,
-    `${get_emoji('banned')} Raid reported by ${spotter} ` +
+    `${get_emoji('banned')} Raid reported by ${spotter_name} ` +
     `at ${gym_name(raid)} was scrubbed.`
   );
 }
 
-function handle_ls_bosses(msg) {
-  let outvec = [];
+function handle_ls_bosses(msg: Discord.Message): Promise<any> {
+  const outvec = [];
 
   for (let tier = 1; tier <= 6; ++tier) {
     if (!raid_data.bosses_for_tier[tier]) continue;
 
-    let fmt_boss_with_default = function(boss) {
-      let formatted = fmt_boss(boss);
+    const fmt_boss_with_default = function(boss: string): string {
+      const formatted = fmt_boss(boss);
       return raid_data.boss_defaults[tier] === boss
         ? formatted + ' _(default)_'
         : formatted;
@@ -2716,61 +3045,112 @@ function handle_ls_bosses(msg) {
 ///////////////////////////////////////////////////////////////////////////////
 // Raid call handlers.
 
-/*
- * Get all the users (and associated metadata) attending the raid at `handle'
- * at `time'.
- *
- * Returns a [{gyms, raids, calls}, raiders_array] tuple.
- */
-async function get_all_raiders(msg, handle, time) {
-  let [results, err] = await select_rsvps(handle, where_call_time(time));
-  if (err) {
-    await log_mysql_error(msg, err);
-    return [null, []];
-  }
-
-  if (results.length < 1) return [null, []];
-
-  let raiders = await Promise.all(results.map(async (row) => {
-    let member = await guild().members.fetch(row.rsvps.user_id);
-    return member ? {
-      member: member,
-      extras: row.rsvps.extras,
-    } : null;
-  }));
-  return [results[0], raiders.filter(m => m !== null)];
+interface Raider {
+  member: Discord.GuildMember;
+  extras: number;
 }
 
 /*
- * Return the number of raiders (including +1's) from a raiders array, like
- * that returned by get_all_raiders().
+ * Get all the users (and associated metadata) attending the raid at `handle'
+ * at `time'.
  */
-function count_raiders(raiders) {
+async function get_all_raiders(
+  origin: ReqOrigin,
+  handle: string,
+  time: Date,
+): Promise<[CallJoinTableRow | null, Raider[]]> {
+  const result = await select_rsvps(handle, where_call_time(time));
+  if (isErr(result)) {
+    await log_mysql_error(origin, result.err);
+    return [null, []];
+  }
+  const rows = result.ok;
+
+  if (rows.length < 1) return [null, []];
+
+  const raiders = await Promise.all(rows.map(async (row) => {
+    const member = await guild().members.fetch(row.rsvps.user_id);
+    return member ? { member, extras: row.rsvps.extras } : null;
+  }));
+  return [rows[0], raiders.filter(m => m !== null)];
+}
+
+/*
+ * Return the number of raiders (including +1's) from a raiders array.
+ */
+function count_raiders(raiders: Raider[]): number {
   return raiders.reduce((sum, r) => sum + 1 + r.extras, 0);
+}
+
+type RaidKey = string;
+
+function raid_cache_key(
+  handle: string,
+  time: Date,
+): RaidKey {
+  return handle + time.getTime();
+}
+
+/*
+ * Cache for call messages.
+ *
+ * Maps call message ID to a {raid, call_time}.
+ */
+let call_cache: Record<
+  Discord.Snowflake,
+  {raid: Gym & Raid, call_time: Date}
+> = {};
+/*
+ * Maps a raid key to a list of call messages.
+ */
+let call_cache_rev: Record<RaidKey, Discord.Message[]> = {};
+
+/*
+ * Cache for join messages.
+ *
+ * Maps a raid key to a {joins: [msgs], alarms: [msgs]}.
+ */
+interface JoinCacheEnt {
+  joins: Discord.Message[];
+  alarms: Discord.Message[];
+}
+let join_cache: Record<RaidKey, JoinCacheEnt> = {};
+
+function join_cache_get(handle: string, time: Date): JoinCacheEnt {
+  return join_cache[raid_cache_key(handle, time)];
+}
+function join_cache_set(handle: string, time: Date, val: JoinCacheEnt | null) {
+  if (val) {
+    join_cache[raid_cache_key(handle, time)] = val;
+  } else {
+    delete join_cache[raid_cache_key(handle, time)];
+  }
 }
 
 /*
  * Set a delayed event for clearing the join cache for `handle' at `call_time'.
  */
-function delay_join_cache_clear(handle, call_time) {
-  let delay = call_time - get_now();
-  if (delay <= 0) delay = 1;
-
+function delay_join_cache_clear(handle: string, call_time: Date): void {
+  const delay = Math.max(+call_time - +get_now(), 1);
   setTimeout(() => { join_cache_set(handle, call_time, null); }, delay);
 }
 
 /*
  * Make the raid alarm message.
  */
-async function make_raid_alarm(msg, gym, call_time) {
+async function make_raid_alarm(
+  origin: ReqOrigin,
+  gym: Gym,
+  call_time: Date,
+): Promise<string | null> {
   if (!config.raid_alarm) return null;
 
-  let [row, raiders] = await get_all_raiders(msg, gym.handle, call_time);
+  const [row, raiders] = await get_all_raiders(origin, gym.handle, call_time);
 
   // The call time might have changed, or everyone may have unjoined.
   if (row === null || raiders.length === 0) return null;
 
-  let output =
+  const output =
     `${gyaoo} ${get_emoji('alarm_clock')} ` +
     `Raid call for ${gym_name(gym)} at ` +
     `\`${time_str(call_time, gym.region)}\` is in ` +
@@ -2784,23 +3164,27 @@ async function make_raid_alarm(msg, gym, call_time) {
 /*
  * Set a timeout to ping raiders for `gym' before `call_time'.
  */
-function set_raid_alarm(msg, gym, call_time) {
+function set_raid_alarm(
+  msg: Discord.Message,
+  gym: Gym,
+  call_time: Date,
+): Promise<any> {
   // This doesn't really belong here, but we set alarms every time we modify a
   // call time, which is exactly when we want to make this guarantee.
   delay_join_cache_clear(gym.handle, call_time);
 
-  let alarm_time = new Date(call_time.getTime());
+  const alarm_time = new Date(call_time.getTime());
   alarm_time.setMinutes(alarm_time.getMinutes() - config.raid_alarm);
 
-  let delay = alarm_time - get_now();
+  const delay = +alarm_time - +get_now();
   if (delay <= 0) return;
 
   setTimeout(async function() {
-    let output = await make_raid_alarm(msg, gym, call_time);
-    let alarm_msgs = await send_for_region(gym.region, output);
+    const output = await make_raid_alarm(msg, gym, call_time);
+    const alarm_msgs = await send_for_region(gym.region, output);
 
     // The join cache might not have been populated if nobody else joined...
-    let j_ent = join_cache_get(gym.handle, call_time);
+    const j_ent = join_cache_get(gym.handle, call_time);
     if (!j_ent) return;
 
     join_cache_set(gym.handle, call_time, {
@@ -2809,7 +3193,7 @@ function set_raid_alarm(msg, gym, call_time) {
     });
   }, delay);
 
-  return log_impl(msg,
+  return log_impl(
     `Setting alarm for \`[${gym.handle}]\` at ` +
     `\`${time_str(alarm_time, gym.region)}\` (server time).`
   );
@@ -2818,11 +3202,15 @@ function set_raid_alarm(msg, gym, call_time) {
 /*
  * Format a join instruction string.
  */
-function make_join_instrs(gym, raid, call_time) {
-  let time_snippet = (() => {
+function make_join_instrs(
+  gym: Gym,
+  raid: Raid,
+  call_time: Date | null,
+): string {
+  const time_snippet = (() => {
     if (!call_time) return '';
 
-    let hatch = hatch_from_despawn(raid.despawn);
+    const hatch = hatch_from_despawn(raid.despawn);
     return call_time.getTime() === hatch.getTime()
       ? ' hatch'
       : ' ' + time_str_short(call_time, gym.region);
@@ -2833,49 +3221,23 @@ function make_join_instrs(gym, raid, call_time) {
          `or react with ${get_emoji('join')} to the call message.`;
 }
 
-/*
- * Cache for call messages.
- *
- * Maps call message ID to a {raid, call_time}.
- */
-let call_cache = {};
-/*
- * Maps a {handle, call_time} to a list of call messages.
- */
-let call_cache_rev = {};
-
-function raid_cache_key(handle, time) { return handle + time.getTime(); }
-
-/*
- * Cache for join messages.
- *
- * Maps a handle+time string to a {joins: [msgs], alarms: [msgs]}.
- */
-let join_cache = {};
-
-function join_cache_get(handle, time) {
-  return join_cache[raid_cache_key(handle, time)];
-}
-function join_cache_set(handle, time, val) {
-  if (val) {
-    join_cache[raid_cache_key(handle, time)] = val;
-  } else {
-    delete join_cache[raid_cache_key(handle, time)];
+async function handle_call(
+  msg: Discord.Message,
+  handle: string,
+  call_time_: TimeSpec | InvalidArg,
+  extras: number | InvalidArg | null,
+): Promise<any> {
+  if (call_time_ instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time_.arg}\`.`);
   }
-}
-
-async function handle_call(msg, handle, call_time, extras) {
-  if (call_time instanceof InvalidArg) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
-  }
-  call_time = await interpret_time(call_time, handle);
+  const call_time = await interpret_time(call_time_, handle);
 
   if (extras instanceof InvalidArg) {
     return log_invalid(msg, `Invalid +1 count \`${extras.arg}\`.`);
   }
-  extras = extras || 0;
+  extras = extras ?? 0;
 
-  let now = get_now();
+  const now = get_now();
 
   // This is a janky way to allow for raids at exactly hatch.  The main
   // shortcoming is that if a raid's despawn is at an exact minute, this will
@@ -2884,10 +3246,10 @@ async function handle_call(msg, handle, call_time, extras) {
   // In practice, this is extremely unlikely, and to avoid this situation for
   // manual hatch/despawn time changes, we add a dummy second to all explicit
   // user-declared raid despawn times.
-  let later = new Date(call_time.getTime());
+  const later = new Date(call_time.getTime());
   later.setMinutes(later.getMinutes() + boss_duration + 1);
 
-  let [result, err] = await moltresdb.query(
+  let result = await moltresdb.query<mysql.UpdateResult>(
     'INSERT INTO calls (raid_id, caller, time) ' +
     '   SELECT raids.gym_id, ?, ? FROM gyms INNER JOIN raids ' +
     '     ON gyms.id = raids.gym_id ' +
@@ -2897,9 +3259,9 @@ async function handle_call(msg, handle, call_time, extras) {
     '     AND raids.despawn <= ? ',
     [msg.author.id, call_time, call_time, now, call_time, later]
   );
-  if (err) {
-    if (err.code === 'ER_DUP_ENTRY') {
-      let [, gym] = await query_for_error(msg, handle);
+  if (isErr(result)) {
+    if (result.err.code === 'ER_DUP_ENTRY') {
+      const {gym} = await query_for_error(msg, handle);
       if (!gym) return; // should never happen
 
       return log_invalid(msg,
@@ -2907,11 +3269,11 @@ async function handle_call(msg, handle, call_time, extras) {
         `at \`${time_str(call_time, gym.region)}\`.`
       );
     }
-    return log_mysql_error(msg, err);
+    return log_mysql_error(msg, result.err);
   }
 
-  if (result.affectedRows === 0) {
-    let [call_rows, gym] = await query_for_error(msg, handle);
+  if (result.ok.affectedRows === 0) {
+    const {call_rows, gym} = await query_for_error(msg, handle);
     if (!gym) return;
 
     if (call_time <= now) {
@@ -2921,7 +3283,7 @@ async function handle_call(msg, handle, call_time, extras) {
       );
     }
 
-    let [{raids}] = call_rows;
+    const [{raids}] = call_rows;
     if (raids.gym_id === null) {
       return log_invalid(msg,
         `No raid has been reported at ${gym_name(gym)}.`
@@ -2942,63 +3304,62 @@ async function handle_call(msg, handle, call_time, extras) {
     return log_invalid(msg, 'An unknown error occurred.');
   }
 
-  let call_id = result.insertId;
+  const call_id = result.ok.insertId;
 
-  [result, err] = await moltresdb.query(
+  result = await moltresdb.query<mysql.UpdateResult>(
     'INSERT INTO rsvps SET ?',
     { call_id: call_id,
       user_id: msg.author.id,
       extras: extras,
       maybe: false }
   );
-  if (err) return log_mysql_error(msg, err);
-
-  let results;
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
   // Grab the raid information just for reply purposes.
-  [results, err] = await moltresdb.query(
+  const reply_res = await moltresdb.query<Gym & Raid>(
     'SELECT * FROM gyms INNER JOIN raids ON gyms.id = raids.gym_id ' +
     '   WHERE ' + where_one_gym(handle)
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(reply_res)) return log_mysql_error(msg, reply_res.err);
+  const rows = reply_res.ok;
 
-  let found_one = await check_one_gym(msg, handle, results);
+  const found_one = await check_one_gym(msg, handle, rows);
   if (!found_one) return;
-  let [raid] = results;
+  const [raid] = rows;
 
-  let region_str = await async function() {
-    let role_id = config.regions[raid.region];
+  const region_str = await async function() {
+    const role_id = config.regions[raid.region];
     if (!role_id) return raid.region;
 
-    let role = await msg.guild.roles.fetch(role_id);
+    const role = await msg.guild.roles.fetch(role_id);
     if (!role) return raid.region;
 
     return raid.silent ? role.name : role.toString();
   }();
 
-  let output = get_emoji('clock230') + ' ' +
+  const output = get_emoji('clock230') + ' ' +
     `${region_str} **${fmt_tier_boss(raid)}** raid ` +
     `at ${gym_name(raid)} ` +
     `called for ${time_str(call_time, raid.region)} ` +
     `by ${msg.author}.  ${gyaoo}` +
     make_join_instrs(raid, raid, call_time);
 
-  let broadcast_call = async function() {
-    let call_msgs = await send_for_region(raid.region, output);
+  const broadcast_call = async function() {
+    const call_msgs = await send_for_region(raid.region, output);
     await Promise.all(call_msgs.map(m => m.react(get_emoji('join', true))));
 
-    let call_ids = call_msgs.map(m => m.id);
-    for (let id of call_ids) call_cache[id] = {raid, call_time};
+    const call_ids = call_msgs.map(m => m.id);
+    for (const id of call_ids) call_cache[id] = {raid, call_time};
 
-    let key = raid_cache_key(raid.handle, call_time);
+    const key = raid_cache_key(raid.handle, call_time);
     call_cache_rev[key] = call_msgs;
 
     setTimeout(
       () => {
-        for (let id of call_ids) delete call_cache[id];
+        for (const id of call_ids) delete call_cache[id];
         delete call_cache_rev[key];
       },
-      raid.despawn - now
+      +raid.despawn - +now
     );
   };
 
@@ -3008,14 +3369,18 @@ async function handle_call(msg, handle, call_time, extras) {
   ]);
 }
 
-async function handle_cancel(msg, handle, call_time) {
-  if (call_time instanceof InvalidArg) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
+async function handle_cancel(
+  msg: Discord.Message,
+  handle: string,
+  call_time_: TimeSpec | InvalidArg | null,
+): Promise<any> {
+  if (call_time_ instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time_.arg}\`.`);
   }
-  call_time = await interpret_time(call_time, handle);
+  const call_time = await interpret_time(call_time_, handle);
 
-  let fail = async function(msg) {
-    let [call_row, gym] =
+  const fail = async function(msg: Discord.Message) {
+    const {call_row, gym} =
       await query_for_error_call(msg, handle, call_time, 'cancel');
     if (!call_row) return;
 
@@ -3025,12 +3390,12 @@ async function handle_cancel(msg, handle, call_time) {
     return log_invalid(msg, 'An unknown error occurred.');
   };
 
-  let [row, raiders] = await get_all_raiders(msg, handle, call_time);
+  const [row, raiders] = await get_all_raiders(msg, handle, call_time);
   if (row === null) return fail(msg);
 
-  let {gyms, raids, calls} = row;
+  const {gyms, raids, calls} = row;
 
-  let [result, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'DELETE calls FROM calls ' +
     '   INNER JOIN raids ON calls.raid_id = raids.gym_id ' +
     '   INNER JOIN gyms ON raids.gym_id = gyms.id ' +
@@ -3039,11 +3404,11 @@ async function handle_cancel(msg, handle, call_time) {
     '  AND calls.caller = ? ',
     [msg.author.id]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  if (result.affectedRows === 0) return fail(msg);
+  if (result.ok.affectedRows === 0) return fail(msg);
 
-  raiders = raiders
+  const users = raiders
     .map(r => r.member.user)
     .filter(user => user.id !== msg.author.id);
 
@@ -3051,35 +3416,41 @@ async function handle_cancel(msg, handle, call_time) {
     `Raid at ${time_str(calls.time, gyms.region)} for ${gym_name(gyms)} ` +
     `was cancelled by ${msg.author}.  ${gyaoo}`;
 
-  if (raiders.length !== 0) {
-    output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
+  if (users.length !== 0) {
+    output += `\n\nPaging other raiders: ${users.join(' ')}.`;
   }
   return send_for_region(gyms.region, output);
 }
 
-async function handle_change_time(msg, handle, current, to, desired) {
-  if (current instanceof InvalidArg) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${current.arg}\`.`);
+async function handle_change_time(
+  msg: Discord.Message,
+  handle: string,
+  current_: TimeSpec | InvalidArg,
+  to: string,
+  desired_: TimeSpec | InvalidArg,
+): Promise<any> {
+  if (current_ instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${current_.arg}\`.`);
   }
-  if (desired instanceof InvalidArg) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${desired.arg}\`.`);
+  if (desired_ instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${desired_.arg}\`.`);
   }
   if (to !== 'to') {
     return log_invalid(msg, usage_string('change-time'));
   }
-  current = await interpret_time(current, handle);
-  desired = await interpret_time(desired, handle);
+  const current = await interpret_time(current_, handle);
+  const desired = await interpret_time(desired_, handle);
 
   // See comment in handle_call().
-  let later = new Date(desired.getTime());
+  const later = new Date(desired.getTime());
   later.setMinutes(later.getMinutes() + boss_duration + 1);
 
-  let assignment = {
+  const assignment = {
     caller: msg.author.id,
     time: desired,
   };
 
-  let [result, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'UPDATE calls ' +
     '   INNER JOIN raids ON calls.raid_id = raids.gym_id ' +
     '   INNER JOIN gyms ON raids.gym_id = gyms.id ' +
@@ -3090,14 +3461,14 @@ async function handle_change_time(msg, handle, current, to, desired) {
     '   AND calls.time = ? ',
     [assignment, desired, later, current]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  if (result.affectedRows === 0) {
-    let [call_row, gym] =
+  if (result.ok.affectedRows === 0) {
+    const {call_row, gym} =
       await query_for_error_call(msg, handle, current, 'change-time');
     if (!call_row) return;
 
-    let {raids} = call_row;
+    const {raids} = call_row;
 
     if (desired >= raids.despawn) {
       return log_invalid(msg,
@@ -3115,19 +3486,19 @@ async function handle_change_time(msg, handle, current, to, desired) {
     return log_invalid(msg, 'An unknown error occurred.');
   }
 
-  let [row, raiders] = await get_all_raiders(msg, handle, desired);
+  const [row, raiders] = await get_all_raiders(msg, handle, desired);
 
   // No raiders is weird, but it could happen if everyone unjoins and
   // someone decides to change the raid time for no meaningful reason.
   if (row === null || raiders.length === 0) return;
-  let {gyms} = row;
+  const {gyms} = row;
   handle = gyms.handle;
 
   // Move the join message cache entry.
   join_cache_set(handle, desired, join_cache_get(handle, current));
   join_cache_set(handle, current, null);
 
-  raiders = raiders
+  const users = raiders
     .map(r => r.member.user)
     .filter(user => user.id !== msg.author.id);
 
@@ -3137,8 +3508,8 @@ async function handle_change_time(msg, handle, current, to, desired) {
     `to ${time_str(desired, gyms.region)} ` +
     `by ${msg.author}.  ${gyaoo}`;
 
-  if (raiders.length !== 0) {
-    output += `\n\nPaging other raiders: ${raiders.join(' ')}.`;
+  if (users.length !== 0) {
+    output += `\n\nPaging other raiders: ${users.join(' ')}.`;
   }
   return Promise.all([
     send_for_region(gyms.region, output),
@@ -3146,7 +3517,12 @@ async function handle_change_time(msg, handle, current, to, desired) {
   ]);
 }
 
-async function handle_join(msg, handle, call_time, extras) {
+async function handle_join(
+  msg: ReqOrigin,
+  handle: string,
+  call_time: TimeSpec | Date | InvalidArg | null,
+  extras: number | InvalidArg | null,
+): Promise<any> {
   if (call_time instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
   }
@@ -3157,9 +3533,9 @@ async function handle_join(msg, handle, call_time, extras) {
   if (extras instanceof InvalidArg) {
     return log_invalid(msg, `Invalid +1 count \`${extras.arg}\`.`);
   }
-  extras = extras || 0;
+  extras = extras ?? 0;
 
-  let [result, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'INSERT INTO rsvps (call_id, user_id, extras, maybe) ' +
     '   SELECT calls.id, ?, ?, ? ' +
     '     FROM gyms ' +
@@ -3170,9 +3546,9 @@ async function handle_join(msg, handle, call_time, extras) {
     '     AND ' + where_call_time(call_time),
     [msg.author.id, extras, false, get_now()]
   );
-  if (err) {
-    if (err.code === 'ER_DUP_ENTRY') {
-      let [, gym] = await query_for_error(msg, handle);
+  if (isErr(result)) {
+    if (result.err.code === 'ER_DUP_ENTRY') {
+      const {gym} = await query_for_error(msg, handle);
       if (!gym) return; // should never happen
 
       return log_invalid(msg,
@@ -3182,11 +3558,11 @@ async function handle_join(msg, handle, call_time, extras) {
           : '.')
       );
     }
-    return log_mysql_error(msg, err);
+    return log_mysql_error(msg, result.err);
   }
 
-  if (result.affectedRows === 0) {
-    let [call_row, ] =
+  if (result.ok.affectedRows === 0) {
+    const {call_row} =
       await query_for_error_call(msg, handle, call_time, 'join');
     if (!call_row) return;
 
@@ -3198,23 +3574,23 @@ async function handle_join(msg, handle, call_time, extras) {
   // The call time might have changed, or everyone may have unjoined.
   if (row === null || raiders.length === 0) return;
 
-  let {gyms, raids, calls} = row;
+  const {gyms, raids, calls} = row;
   handle = gyms.handle;
 
   raiders = raiders.filter(r => r.member.id !== msg.author.id);
 
-  let joining = extras > 0 ? `joining with +${extras}` : 'joining';
+  const joining = extras > 0 ? `joining with +${extras}` : 'joining';
 
   let output = get_emoji('team') + '  ' +
     `${msg.author} is ${joining} at ${time_str(calls.time, gyms.region)} ` +
     `for the **${fmt_tier_boss(raids)}** raid at ${gym_name(gyms)}`;
 
   if (raiders.length !== 0) {
-    let names = raiders.map(
-      r => r.member.nickname || r.member.user.username
+    const names = raiders.map(
+      r => r.member.nickname ?? r.member.user.username
     );
-    let num_raiders = count_raiders(raiders);
-    let others = num_raiders === 1 ? 'other' : 'others';
+    const num_raiders = count_raiders(raiders);
+    const others = num_raiders === 1 ? 'other' : 'others';
     output += ` (with ${num_raiders} ${others}: ${names.join(', ')}).`;
   } else {
     output += '.';
@@ -3222,35 +3598,34 @@ async function handle_join(msg, handle, call_time, extras) {
 
   output += make_join_instrs(gyms, raids, !!call_time ? calls.time : null);
 
-  let join_msgs = await (() => {
-    let call_msgs = call_cache_rev[raid_cache_key(gyms.handle, calls.time)];
+  const join_msgs = await (() => {
+    const call_msgs = call_cache_rev[raid_cache_key(gyms.handle, calls.time)];
     if (call_msgs) {
       return Promise.all(call_msgs.map(
-        parent => send_quiet(parent.channel, output, parent)
+        target => send_quiet(target.channel, output, target)
       ));
-    } else {
-      return send_for_region(gyms.region, output);
     }
+    return send_for_region(gyms.region, output);
   })();
 
   // Clear any existing join message for this raid.
-  let replace_prev_msg = async function() {
-    let prev = join_cache_get(handle, calls.time);
+  const replace_prev_msg = async function() {
+    const prev = join_cache_get(handle, calls.time);
     join_cache_set(handle, calls.time, {
       joins: join_msgs,
       alarms: prev ? prev.alarms : [],
     });
     if (prev) {
-      let dels = prev.joins.map(join => try_delete(join));
+      const dels = prev.joins.map(join => try_delete(join));
       if (prev.alarms.length === 0) return dels;
 
       // If it's past the alarm time, we want to edit the alarm messages...
-      let content = await make_raid_alarm(msg, gyms, calls.time);
-      let edits = prev.alarms.map(alarm => alarm.edit(content));
+      const content = await make_raid_alarm(msg, gyms, calls.time);
+      const edits = prev.alarms.map(alarm => alarm.edit(content));
 
       // ...and DM the raid caller.
-      let caller = await moltres.users.fetch(calls.caller);
-      let dms = [dm_quiet(caller,
+      const caller = await moltres.users.fetch(calls.caller);
+      const dms: Promise<any>[] = [dm_quiet(caller,
         `${get_emoji('rollsafe')} ${msg.author.tag} has joined the raid late ` +
         `at ${gym_name(gyms)} at ${time_str(calls.time, gyms.region)}.`
       )];
@@ -3267,23 +3642,27 @@ async function handle_join(msg, handle, call_time, extras) {
   ]);
 }
 
-async function handle_unjoin(msg, handle, call_time) {
-  if (call_time instanceof InvalidArg) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
+async function handle_unjoin(
+  msg: Discord.Message,
+  handle: string,
+  call_time_: TimeSpec | InvalidArg | null,
+): Promise<any> {
+  if (call_time_ instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time_.arg}\`.`);
   }
-  call_time = await interpret_time(call_time, handle);
+  const call_time = await interpret_time(call_time_, handle);
 
-  let [result, err] = await moltresdb.query(
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'DELETE rsvps FROM ' + full_join_table +
     '   WHERE ' + where_one_gym(handle) +
     '     AND ' + where_call_time(call_time) +
     '     AND rsvps.user_id = ? ',
     [msg.author.id]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  if (result.affectedRows === 0) {
-    let [call_row, gym] =
+  if (result.ok.affectedRows === 0) {
+    const {call_row, gym} =
       await query_for_error_call(msg, handle, call_time, 'unjoin');
     if (!call_row) return;
 
@@ -3297,24 +3676,28 @@ async function handle_unjoin(msg, handle, call_time) {
   return react_success(msg, 'cry');
 }
 
-async function handle_ping(msg, handle, call_time) {
-  if (call_time instanceof InvalidArg) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time.arg}\`.`);
+async function handle_ping(
+  msg: Discord.Message,
+  handle: string,
+  call_time_: TimeSpec | InvalidArg | null,
+): Promise<any> {
+  if (call_time_ instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${call_time_.arg}\`.`);
   }
-  call_time = await interpret_time(call_time, handle);
+  const call_time = await interpret_time(call_time_, handle);
 
-  let [row, raiders] = await get_all_raiders(msg, handle, call_time);
+  const [row, raiders] = await get_all_raiders(msg, handle, call_time);
   if (row === null) {
     return query_for_error_call(msg, handle, call_time, 'ping');
   }
-  let {gyms, raids, calls} = row;
+  const {gyms, raids, calls} = row;
 
-  let tags = raiders
+  const tags = raiders
     .filter(r => r.member.user.id !== msg.author.id)
     .map(r => r.member.user.toString())
     .join(' ');
 
-  let content = get_emoji('point_up') +
+  const content = get_emoji('point_up') +
     ` Ping from ${msg.author} about the ${gym_name(gyms)} raid` +
     ` at ${time_str(calls.time, gyms.region)}: ${tags}`;
 
@@ -3333,18 +3716,24 @@ const ex_room_capture = /^(.*)-(\w+)-(\d\d)/;
 const ex_topic_capture =
   /^(EX raid coordination for .* on [A-Z][a-z]+ \d+)(.*)\./;
 
+interface EXDate {
+  month: string;
+  day: number;
+}
+type EXInfo = { handle: string; } & EXDate
+
 /*
  * Build a canonical EX raid room name using a gym `handle' and raid `date'.
  */
-function ex_room_name(handle, date) {
+function ex_room_name(handle: string, date: Date): string {
   return (handle + '-' + date_str(date)).toLowerCase().replace(/\W/g, '-');
 }
 
 /*
  * Extract the gym handle, month, and day from an EX raid room name.
  */
-function ex_room_components(room_name) {
-  let [, handle, month, day] = room_name.match(ex_room_capture);
+function ex_room_components(room_name: string): EXInfo {
+  const [, handle, month, day] = room_name.match(ex_room_capture);
   return {
     handle: handle,
     month: capitalize(month),
@@ -3356,8 +3745,8 @@ function ex_room_components(room_name) {
  * Extract `date' into a format compatible with the output of
  * ex_room_components().
  */
-function ex_format_date(date) {
-  let str = date_str(date);
+function ex_format_date(date: Date): EXDate {
+  const str = date_str(date);
   return {
     month: str.slice(0, str.indexOf(' ')),
     day: date.getDate(),
@@ -3368,16 +3757,20 @@ function ex_format_date(date) {
  * Whether the date for the EX raid `room_name' matches `ex_date', a date
  * formatted by ex_format_date().
  */
-function ex_room_matches_date(room_name, ex_date) {
-  let info = ex_room_components(room_name);
+function ex_room_matches_date(room_name: string, ex_date: EXDate): boolean {
+  const info = ex_room_components(room_name);
   return ex_date.month === info.month && ex_date.day === info.day;
 }
 
 /*
  * Create a channel `room_name' for an EX raid at `gym' on `date'.
  */
-async function create_ex_room(room_name, gym, date) {
-  let permissions = config.ex.permissions
+async function create_ex_room(
+  room_name: string,
+  gym: Gym,
+  date: Date,
+): Promise<Discord.TextChannel> {
+  const permissions = config.ex.permissions
     .concat([
       { // Make sure Moltres can modify the channel.
         id: moltres.user.id,
@@ -3410,20 +3803,27 @@ async function create_ex_room(room_name, gym, date) {
 /*
  * Add or remove `user' to/from the EX raid room `room'.
  */
-async function enter_ex_room(uid, room) {
+async function enter_ex_room(
+  uid: Discord.Snowflake,
+  room: Discord.TextChannel,
+): Promise<any> {
   room = await room.updateOverwrite(uid, {VIEW_CHANNEL: true});
-  let user = await moltres.users.fetch(uid);
+  const user = await moltres.users.fetch(uid);
   return send_quiet(room, `Welcome ${user} to the room!`);
 }
-function exit_ex_room(uid, room) {
+function exit_ex_room(
+  uid: Discord.Snowflake,
+  room: Discord.TextChannel,
+): Promise<any> {
   return room.permissionOverwrites.get(uid).delete();
 }
 
 /*
  * Return whether `channel' is an EX raid room.
  */
-function is_ex_room(channel) {
+function is_ex_room(channel: Discord.DMChannel | Discord.GuildChannel): boolean {
   if (channel.type === 'dm') return false;
+  channel = channel as Discord.GuildChannel;
 
   if ('category' in config.ex) {
     return channel.parentID === config.ex.category;
@@ -3438,60 +3838,70 @@ function is_ex_room(channel) {
  * This is done by inspecting all the permission overwrites for users who were
  * not added to the room by Moltres configuration.
  */
-function ex_raiders(room) {
-  let uids = new Set([...room.permissionOverwrites.keys()]);
+function ex_raiders(room: Discord.TextChannel): Promise<Discord.User[]> {
+  const uids = new Set([...room.permissionOverwrites.keys()]);
 
-  for (let overwrite of config.ex.permissions) {
+  for (const overwrite of config.ex.permissions) {
     uids.delete(overwrite.id);
   }
   uids.delete(guild().id);
   uids.delete(moltres.user.id);
 
-  uids = [...uids].filter(id => !guild().roles.cache.get(id));
-
-  return Promise.all([...uids].map(id => moltres.users.cache.get(id)));
+  return Promise.all([...uids]
+    .filter(id => !guild().roles.cache.get(id))
+    .map(id => moltres.users.cache.get(id))
+  );
 }
 
 /*
  * Cache for pending EX raid rooms.
  */
-let ex_cache = {};
+interface EXPending {
+  id: Discord.Snowflake;
+  mention: string;
+}
+let ex_cache: Record<string, Set<EXPending>> = {};
 
-function ex_cache_found(room_name) {
+function ex_cache_found(room_name: string): boolean {
   return room_name in ex_cache;
 }
-function ex_cache_insert(room_name, user) {
-  ex_cache[room_name] = ex_cache[room_name] || new Set();
+function ex_cache_insert(room_name: string, user: Discord.User): void {
+  ex_cache[room_name] = ex_cache[room_name] ?? new Set();
   ex_cache[room_name].add({
     id: user.id,
     mention: user.toString(),
   });
 }
-function ex_cache_take(room_name) {
-  let users = ex_cache[room_name];
+function ex_cache_take(room_name: string): EXPending[] {
+  const users = ex_cache[room_name];
   delete ex_cache[room_name];
   return [...users];
 }
 
-async function handle_ex(msg, handle, date) {
+async function handle_ex(
+  msg: Discord.Message,
+  handle: string,
+  date: Date | InvalidArg | null,
+): Promise<any> {
   if (date instanceof InvalidArg) {
     return log_invalid(msg, `Invalid MM/DD date \`${date.arg}\`.`);
   }
 
-  let [results, err] = await moltresdb.query(
+  const result = await moltresdb.query<Gym>(
     'SELECT * FROM gyms WHERE ' + where_one_gym(handle)
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
+  const rows = result.ok;
 
-  let found_one = await check_one_gym(msg, handle, results);
+  const found_one = await check_one_gym(msg, handle, rows);
   if (!found_one) return;
-  let [gym] = results;
+  const [gym] = rows;
 
   if (!gym.ex) {
     return log_invalid(msg, `${gym_name(gym)} is not an EX raid location.`);
   }
 
-  let room_re = new RegExp(`^${gym.handle}-\\w+-\\d\\d$`);
+  const room_re = new RegExp(`^${gym.handle}-\\w+-\\d\\d$`);
 
   // We'd prefer to only search the channels in the category, but a bug in
   // the current version of discord.js prevents the list of children from
@@ -3500,16 +3910,17 @@ async function handle_ex(msg, handle, date) {
   // let chan_list = 'category' in config.ex
   //   ? moltres.channels.fetch(config.ex.category).children
   //   : guild().channels;
-  let chan_list = guild().channels.cache;
+  const chan_list = guild().channels.cache;
 
-  let room = chan_list.find(c => !!c.name.match(room_re));
+  let room =
+    chan_list.find(c => !!c.name.match(room_re)) as Discord.TextChannel;
 
   if (room !== null) {
     if (date !== null) {
       // Check for a mismatched date.
-      let room_name = ex_room_name(gym.handle, date);
+      const room_name = ex_room_name(gym.handle, date);
       if (room.name !== room_name) {
-        let ex = ex_room_components(room.name);
+        const ex = ex_room_components(room.name);
         return log_invalid(msg,
           `Incorrect EX raid date ${date_str(date)} for ` +
           `${gym_name(gym)}.  A room has already been created for ` +
@@ -3526,7 +3937,7 @@ async function handle_ex(msg, handle, date) {
       `Must provide a date for new EX raid at ${gym_name(gym)}.`
     );
   }
-  let room_name = ex_room_name(gym.handle, date);
+  const room_name = ex_room_name(gym.handle, date);
 
   // Check to see if anyone is already creating this room.  If so, we
   // should just add ourselves to the ex_cache entry and move on.
@@ -3541,40 +3952,41 @@ async function handle_ex(msg, handle, date) {
   ex_cache_insert(room_name, msg.author);
   room = await create_ex_room(room_name, gym, date);
 
-  let users = ex_cache_take(room_name);
+  const users = ex_cache_take(room_name);
   await Promise.all(users.map(({id}) => enter_ex_room(id, room)));
 
-  let out = get_emoji('pushpin') +
+  const out = get_emoji('pushpin') +
     `  ${users[0].mention}, please post a screenshot of your EX raid pass ` +
     `and use \`$exact\` to set the raid time.  (Anyone can do this, but you ` +
     `created the room.)`;
   return send_quiet(room, out);
 }
 
-async function handle_explore(msg) {
-  let room_info = new Map(guild().channels.cache
+async function handle_explore(msg: Discord.Message): Promise<any> {
+  const room_info = new Map(guild().channels.cache
     .filter(is_ex_room)
-    .map(room => {
-      let [, , time] = room.topic.match(ex_topic_capture);
+    .map(room_ => {
+      const room = room_ as Discord.TextChannel;
+      const [, , time] = room.topic.match(ex_topic_capture);
       return Object.assign(ex_room_components(room.name), {time: time});
     })
     .map(info => [info.handle, info])
   );
 
-  let [results, err] = await moltresdb.query(
+  const result = await moltresdb.query<Gym>(
     'SELECT * FROM gyms WHERE handle IN (' +
         Array(room_info.size).fill('?').join(',') +
     ')',
     [...room_info.keys()]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  let month_str = ex_format_date(get_now()).month;
+  const month_str = ex_format_date(get_now()).month;
 
-  let output = 'Active EX raid rooms:\n\n' + results
-    .sort((l, r) => {
-      l = room_info.get(l.handle);
-      r = room_info.get(r.handle);
+  const output = 'Active EX raid rooms:\n\n' + result.ok
+    .sort((l_, r_) => {
+      const l = room_info.get(l_.handle);
+      const r = room_info.get(r_.handle);
       // Rather than trying to map month names back to indices and deal with
       // ordering December and January in the absence of explicit years,
       // instead we just compare the month to the current month.  Since EX
@@ -3586,7 +3998,7 @@ async function handle_explore(msg) {
       return l.handle.localeCompare(r.handle);
     })
     .map(gym => {
-      let r = room_info.get(gym.handle);
+      const r = room_info.get(gym.handle);
       const end = ' (EX!)'.length;
       return `${gym_name(gym).slice(0, -end)} (${r.month} ${r.day}${r.time})`;
     })
@@ -3595,34 +4007,36 @@ async function handle_explore(msg) {
   return send_quiet(msg.channel, output);
 }
 
-async function handle_exit(msg) {
+async function handle_exit(msg: Discord.Message): Promise<any> {
   // If a user has a permission overwrite, they're in the room.
-  let in_room = !!msg.channel.permissionOverwrites.get(msg.author.id);
+  const channel = msg.channel as Discord.TextChannel;
+  const in_room = !!channel.permissionOverwrites.get(msg.author.id);
 
   if (!in_room) {
     return log_invalid(msg,
-      `You have not entered the EX room #${msg.channel.name}`
+      `You have not entered the EX room #${channel.name}`
     );
   }
 
   if (config.ex.exit_strict &&
-      ex_room_matches_date(msg.channel.name, ex_format_date(get_now()))) {
-    let out = get_emoji('upside_down') +
+      ex_room_matches_date(channel.name, ex_format_date(get_now()))) {
+    const out = get_emoji('upside_down') +
       `  ${gyaoo}  It's rude to exit an EX raid room the day of the raid,` +
       ` ${msg.author}!`;
-    return send_quiet(msg.channel, out);
+    return send_quiet(channel, out);
   }
 
-  await exit_ex_room(msg.author.id, msg.channel);
+  await exit_ex_room(msg.author.id, channel);
   return chain_reaccs(msg, 'door', 'walking', 'dash');
 }
 
-async function handle_examine(msg) {
-  let ex = ex_room_components(msg.channel.name);
+async function handle_examine(msg: Discord.Message): Promise<any> {
+  const channel = msg.channel as Discord.TextChannel;
+  const ex = ex_room_components(channel.name);
 
-  let users = await ex_raiders(msg.channel);
+  const users = await ex_raiders(channel);
 
-  return send_quiet(msg.channel, {
+  return send_quiet(channel, {
     embed: new Discord.MessageEmbed()
       .setTitle(
         `**List of EX raiders** for \`${ex.handle}\` on ${ex.month} ${ex.day}`
@@ -3632,59 +4046,70 @@ async function handle_examine(msg) {
   });
 }
 
-async function handle_exact(msg, time) {
-  if (time instanceof InvalidArg) {
-    return log_invalid(msg, `Unrecognized HH:MM time \`${time.arg}\`.`);
+async function handle_exact(
+  msg: Discord.Message,
+  time_: TimeSpec | InvalidArg,
+): Promise<any> {
+  const channel = msg.channel as Discord.TextChannel;
+
+  if (time_ instanceof InvalidArg) {
+    return log_invalid(msg, `Unrecognized HH:MM time \`${time_.arg}\`.`);
   }
-  if (time === 'hatch') {
+  if (time_ === 'hatch') {
     return log_invalid(msg, `Unrecognized HH:MM time \`hatch\`.`);
   }
-  time = await interpret_time(time);
+  const time = await interpret_time(time_);
 
-  let [, topic] = msg.channel.topic.match(ex_topic_capture);
+  const [, topic] = channel.topic.match(ex_topic_capture);
 
-  let {handle} = ex_room_components(msg.channel.name);
-  let region = await select_region(handle);
+  const {handle} = ex_room_components(channel.name);
+  const region = await select_region(handle);
 
   return Promise.all([
-    msg.channel.setTopic(`${topic} at ${time_str(time, region)}.`),
+    channel.setTopic(`${topic} at ${time_str(time, region)}.`),
     react_success(msg),
   ]);
 }
 
-async function handle_exclaim(msg) {
-  let users = await ex_raiders(msg.channel);
-  let tags = users.map(u => u.toString()).join(' ');
-  let content = get_emoji('point_up') +
+async function handle_exclaim(msg: Discord.Message): Promise<any> {
+  const users = await ex_raiders(msg.channel as Discord.TextChannel);
+  const tags = users.map(u => u.toString()).join(' ');
+  const content = get_emoji('point_up') +
     ` ${msg.author} used \`$exclaim\`!  It's super effective: ${tags}`;
 
   return send_quiet(msg.channel, content);
 }
 
-function handle_expunge(msg, date) {
+function handle_expunge(
+  msg: Discord.Message,
+  date: Date | InvalidArg,
+): Promise<any> {
   if (date instanceof InvalidArg) {
     return log_invalid(msg, `Invalid MM/DD date \`${date.arg}\`.`);
   }
-  let expected = ex_format_date(date);
+  const expected = ex_format_date(date);
 
-  let rooms = guild().channels.cache
+  const rooms = guild().channels.cache
     .filter(is_ex_room)
     .filter(room => ex_room_matches_date(room.name, expected));
 
   return Promise.all(rooms.map(room => room.delete()));
 }
 
-async function handle_exalt(msg, handle) {
-  let [result, err] = await moltresdb.query(
+async function handle_exalt(
+  msg: Discord.Message,
+  handle: string
+): Promise<any> {
+  const result = await moltresdb.query<mysql.UpdateResult>(
     'UPDATE gyms SET `ex` = 1 WHERE `handle` IN ( ' +
     '   SELECT `handle` FROM ( ' +
     '     SELECT `handle` FROM gyms WHERE ' + where_one_gym(handle) +
     '   ) AS gyms_ ' +
     ')'
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  if (result.changedRows === 0) {
+  if (result.ok.changedRows === 0) {
     return send_quiet(msg.channel, 'Gym already marked EX-eligible.');
   }
   return react_success(msg);
@@ -3695,12 +4120,14 @@ async function handle_exalt(msg, handle) {
 /*
  * Check whether `msg' is from a source with access to `request'.
  */
-function has_access(msg, request) {
-  let access = reqs[request].access;
+function has_access(msg: Discord.Message, request: Req): boolean {
+  const access = reqs[request].access;
 
   if (from_dm(msg)) {
-    return access & Access.DM ||
-          (access & Access.ADMIN_DM && config.admin_ids.has(msg.author.id));
+    return !!(access & Access.DM) || (
+      !!(access & Access.ADMIN_DM) &&
+      config.admin_ids.has(msg.author.id)
+    );
   }
   if (msg.channel.id in config.channels) {
     if (access & Access.REGION) return true;
@@ -3709,7 +4136,7 @@ function has_access(msg, request) {
     if (access & Access.EX_MAIN) return true;
   }
   if (is_ex_room(msg.channel)) {
-    return access & Access.EX_ROOM;
+    return !!(access & Access.EX_ROOM);
   }
   return false;
 }
@@ -3719,21 +4146,21 @@ function has_access(msg, request) {
  *
  * Returns a tuple of nulls if the request or its modifiers are invalid.
  */
-function parse_req_str(req) {
+function parse_req_str(input: string): [Req | null, Mod | null] {
   let mods = Mod.NONE;
 
   for (
-    let mod_char = req.charAt(req.length - 1);
+    let mod_char = input.charAt(input.length - 1);
     mod_char in modifier_map;
-    req = req.slice(0, -1), mod_char = req.charAt(req.length - 1)
+    input = input.slice(0, -1), mod_char = input.charAt(input.length - 1)
   ) {
     mods |= modifier_map[mod_char];
   }
 
-  req = req_aliases[req] || req;
+  const req = (req_aliases[input] ?? input) as Req;
   if (!(req in reqs)) return [null, mods];
 
-  let mod_mask = reqs[req].mod_mask || Mod.NONE;
+  const mod_mask = reqs[req].mod_mask ?? Mod.NONE;
 
   if ((mods | mod_mask) !== mod_mask) return [req, null];
   return [req, mods];
@@ -3742,53 +4169,94 @@ function parse_req_str(req) {
 /*
  * Do the work of `request'.
  */
-async function handle_request(msg, request, mods, argv) {
+async function handle_request(
+  msg: Discord.Message,
+  request: Req,
+  mods: Mod,
+  argv: any[],
+): Promise<any> {
   if (argv.length === 1 && argv[0] === 'help') {
-    return handle_help(msg, [request]);
+    return handle_help(msg, request);
   }
 
   switch (request) {
+    // @ts-ignore
     case 'help':      return handle_help(msg, ...argv);
+    // @ts-ignore
     case 'set-perm':  return handle_set_perm(msg, ...argv);
+    // @ts-ignore
     case 'ls-perms':  return handle_ls_perms(msg, ...argv);
+    // @ts-ignore
     case 'add-boss':  return handle_add_boss(msg, ...argv);
+    // @ts-ignore
     case 'rm-boss':   return handle_rm_boss(msg, ...argv);
+    // @ts-ignore
     case 'def-boss':  return handle_def_boss(msg, ...argv);
 
+    // @ts-ignore
     case 'reload-config': return handle_reload_config(msg, ...argv);
+    // @ts-ignore
     case 'raidday':   return handle_raidday(msg, ...argv);
+    // @ts-ignore
     case 'test':      return handle_test(msg, ...argv);
 
+    // @ts-ignore
     case 'add-gym':   return handle_add_gym(msg, ...argv);
+    // @ts-ignore
     case 'edit-gym':  return handle_edit_gym(msg, ...argv);
+    // @ts-ignore
     case 'mv-gym':    return handle_mv_gym(msg, ...argv);
 
+    // @ts-ignore
     case 'gym':       return handle_gym(msg, ...argv);
+    // @ts-ignore
     case 'ls-gyms':   return handle_ls_gyms(msg, ...argv);
+    // @ts-ignore
     case 'ls-regions':  return handle_ls_regions(msg, ...argv);
 
+    // @ts-ignore
     case 'raid':      return handle_raid(msg, ...argv);
+    // @ts-ignore
     case 'ls-raids':  return handle_ls_raids(msg, ...argv);
+    // @ts-ignore
     case 'egg':       return handle_egg(msg, ...argv, mods);
+    // @ts-ignore
     case 'boss':      return handle_boss(msg, ...argv, mods);
+    // @ts-ignore
     case 'update':    return handle_update(msg, ...argv, mods);
+    // @ts-ignore
     case 'scrub':     return handle_scrub(msg, ...argv);
+    // @ts-ignore
     case 'ls-bosses': return handle_ls_bosses(msg, ...argv);
 
+    // @ts-ignore
     case 'call':      return handle_call(msg, ...argv);
+    // @ts-ignore
     case 'cancel':    return handle_cancel(msg, ...argv);
+    // @ts-ignore
     case 'change-time': return handle_change_time(msg, ...argv);
+    // @ts-ignore
     case 'join':      return handle_join(msg, ...argv);
+    // @ts-ignore
     case 'unjoin':    return handle_unjoin(msg, ...argv);
+    // @ts-ignore
     case 'ping':      return handle_ping(msg, ...argv);
 
+    // @ts-ignore
     case 'ex':        return handle_ex(msg, ...argv);
+    // @ts-ignore
     case 'exit':      return handle_exit(msg, ...argv);
+    // @ts-ignore
     case 'examine':   return handle_examine(msg, ...argv);
+    // @ts-ignore
     case 'exact':     return handle_exact(msg, ...argv);
+    // @ts-ignore
     case 'exclaim':   return handle_exclaim(msg, ...argv);
+    // @ts-ignore
     case 'explore':   return handle_explore(msg, ...argv);
+    // @ts-ignore
     case 'expunge':   return handle_expunge(msg, ...argv);
+    // @ts-ignore
     case 'exalt':     return handle_exalt(msg, ...argv);
     default:
       return log_invalid(msg, `Invalid request \`${request}\`.`, true);
@@ -3799,13 +4267,18 @@ async function handle_request(msg, request, mods, argv) {
  * Check whether the user who sent `msg' has the proper permissions to make
  * `request', and make it if so.
  */
-async function handle_request_with_check(msg, request, mods, argv) {
-  let req_meta = reqs[request];
+async function handle_request_with_check(
+  msg: Discord.Message,
+  request: Req,
+  mods: Mod,
+  argv: any[],
+) {
+  const req_meta = reqs[request];
 
   if (!has_access(msg, request)) {
-    let dm = from_dm(msg);
-    let output = `\`\$${request}\` can't be handled ` +
-                 (dm ? 'via DM' : `from ${msg.channel}.`);
+    const dm = from_dm(msg);
+    const output = `\`\$${request}\` can't be handled ` +
+                   (dm ? 'via DM' : `from ${msg.channel}.`);
     return log_invalid(msg, output, dm);
   }
 
@@ -3814,15 +4287,15 @@ async function handle_request_with_check(msg, request, mods, argv) {
     return handle_request(msg, request, mods, argv);
   }
 
-  let [results, err] = await moltresdb.query(
+  const result = await moltresdb.query<PermissionRow>(
     'SELECT * FROM permissions WHERE (cmd = ? AND user_id = ?)',
-    [req_to_perm[request] || request, msg.author.id]
+    [req_to_perm[request] ?? request, msg.author.id]
   );
-  if (err) return log_mysql_error(msg, err);
+  if (isErr(result)) return log_mysql_error(msg, result.err);
 
-  let permitted =
-    (results.length === 1 && req_meta.perms === Permission.WHITELIST) ||
-    (results.length === 0 && req_meta.perms === Permission.BLACKLIST);
+  const permitted =
+    (result.ok.length === 1 && req_meta.perms === Permission.WHITELIST) ||
+    (result.ok.length === 0 && req_meta.perms === Permission.BLACKLIST);
 
   if (permitted) {
     return handle_request(msg, request, mods, argv);
@@ -3836,13 +4309,12 @@ async function handle_request_with_check(msg, request, mods, argv) {
 /*
  * Process a user request.
  */
-async function process_request(msg) {
+async function process_request(msg: Discord.Message) {
   if (msg.content.charAt(0) !== '$') return;
   let args = msg.content.substr(1);
+  let req_str: string;
 
-  let req_str = null;
-
-  let match = /\s+/.exec(args);
+  const match = /\s+/.exec(args);
   if (match === null) {
     req_str = args;
     args = '';
@@ -3851,15 +4323,19 @@ async function process_request(msg) {
     args = args.substr(match.index + match[0].length);
   }
 
-  let log = await moltres.channels.fetch(config.log_id);
-  let output = `\`\$${req_str}\` ${args}
+  const log =
+    await moltres.channels.fetch(config.log_id) as Discord.TextChannel;
+
+  const output = `\`\$${req_str}\` ${args}
 _Time:_  ${get_now().toLocaleString('en-US')}
 _User:_  ${msg.author.tag}
-_Channel:_  #${from_dm(msg) ? '[dm]' : msg.channel.name}`;
-
+_Channel:_  #${from_dm(msg)
+  ? '[dm]'
+  : (msg.channel as Discord.TextChannel).name
+}`;
   await send_quiet(log, output);
 
-  let [req, mods] = parse_req_str(req_str);
+  const [req, mods] = parse_req_str(req_str);
 
   if (req === null) {
     return log_invalid(msg, `Invalid request \`${req_str}\`.`, true);
@@ -3870,7 +4346,7 @@ _Channel:_  #${from_dm(msg) ? '[dm]' : msg.channel.name}`;
     );
   }
 
-  let argv = parse_args(args, reqs[req].args);
+  const argv = parse_args(args, reqs[req].args);
   if (argv === null) {
     return log_invalid(msg, usage_string(req));
   }
@@ -3883,7 +4359,7 @@ _Channel:_  #${from_dm(msg) ? '[dm]' : msg.channel.name}`;
 /*
  * Main reader event.
  */
-moltres.on('message', async msg => {
+moltres.on('message', async (msg: Discord.Message) => {
   if (msg.channel.id in config.channels ||
       config.ex.channels.has(msg.channel.id) ||
       from_dm(msg) || is_ex_room(msg.channel)) {
@@ -3902,12 +4378,15 @@ moltres.on('message', async msg => {
 /*
  * Process reacc joins.
  */
-moltres.on('messageReactionAdd', async (reacc, user) => {
+moltres.on('messageReactionAdd', async (
+  reacc: Discord.MessageReaction,
+  user: Discord.User,
+) => {
   if (user.id === moltres.user.id) return;
 
-  let call = call_cache[reacc.message.id];
+  const call = call_cache[reacc.message.id];
   if (!call) return;
 
   if (reacc.emoji.id !== get_emoji('join', true)) return;
-  await handle_join(make_fake_msg(user), call.raid.handle, call.call_time, 0);
+  await handle_join({author: user}, call.raid.handle, call.call_time, 0);
 });

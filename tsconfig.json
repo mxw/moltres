@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2019",
+    "outDir": "dist",
+
+    "baseUrl": ".",
+    "paths": {
+      "*": ["*", "src/*", "src/@types/*"]
+    },
+
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "noImplicitAny": true
+  },
+  "ts-node": {
+    "require": ["tsconfig-paths/register"]
+  }
+}
