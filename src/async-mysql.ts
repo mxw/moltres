@@ -57,27 +57,6 @@ export class AsyncConnection {
   }
 
   /*
-  async buery(...args) {
-    try {
-      const [result] = await this.conn.query(...args);
-      return [result, null];
-    } catch (err) {
-      if (!err.fatal &&
-          err.code !== 'EPIPE' &&
-          err.code !== 'PROTOCOL_CONNECTION_LOST') {
-        return [null, err];
-      }
-      try {
-        this.conn = await mysql.createConnection(this.config);
-      } catch (_) {
-        return [null, err];
-      }
-      return this.query(...args);
-    }
-  }
-  */
-
-  /*
    * Gracefully close the connection, throwing an Error or resolving nullish.
    */
   end() { return this.conn.end(); }
