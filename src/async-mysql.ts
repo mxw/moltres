@@ -43,7 +43,8 @@ export class AsyncConnection {
       const [result] = await this.conn.query(sql_or_options, values);
       return OK(result as QuerySuccess<T>);
     } catch (err) {
-      if (err.code !== 'EPIPE' &&
+      if (!err.fatal &&
+          err.code !== 'EPIPE' &&
           err.code !== 'PROTOCOL_CONNECTION_LOST') {
         return Err(err);
       }
