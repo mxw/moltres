@@ -14,7 +14,7 @@
     "@types/node": "^16.4.13",
     "@types/trie-prefix-tree": "^1.5.0",
     "@types/ws": "^7.4.7",
-    "discord.js": "^12.5.3",
+    "discord.js": "^13.1.0",
     "edit-distance": "^1.0.4",
     "luxon": "^1.28.0",
     "mysql2": "^2.3.0",

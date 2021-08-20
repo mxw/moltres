@@ -38,7 +38,17 @@ let raid_data: RaidData;
 ///////////////////////////////////////////////////////////////////////////////
 
 const moltres = new Discord.Client({
-  partials: ['USER'],
+  intents: [
+    Discord.Intents.FLAGS.GUILDS,
+    Discord.Intents.FLAGS.GUILD_MESSAGES,
+    Discord.Intents.FLAGS.GUILD_MESSAGE_REACTIONS,
+    Discord.Intents.FLAGS.DIRECT_MESSAGES,
+    Discord.Intents.FLAGS.DIRECT_MESSAGE_REACTIONS,
+  ],
+  partials: [
+    'CHANNEL',
+    'USER',
+  ],
 });
 
 moltres.on('ready', () => {
@@ -910,15 +920,19 @@ function guild(): Discord.Guild {
 /*
  * Whether `user' is a member of `guild'.
  */
-function is_member(guild: Discord.Guild, user: Discord.User): boolean {
-  return guild.member(user) !== null;
+async function is_member(
+  guild: Discord.Guild,
+  user: Discord.User,
+): Promise<boolean> {
+  const member = await guild.members.fetch(user.id);
+  return !!member;
 }
 
 /*
  * Whether `msg' is from a DM.
  */
 function from_dm(msg: Discord.Message): boolean {
-  return msg.channel.type === 'dm';
+  return msg.channel.type === 'DM';
 }
 
 type MessageContent = string | (Discord.MessageOptions & { split?: false })
@@ -927,7 +941,7 @@ type MessageContent = string | (Discord.MessageOptions & { split?: false })
  * Wrapper around send() that chains messages and swallows exceptions.
  */
 async function send_quiet_impl(
-  channel: Discord.TextChannel | Discord.NewsChannel | Discord.DMChannel,
+  channel: Discord.TextBasedChannels,
   reply_parent: Discord.Message | null,
   ...contents: MessageContent[]
 ): Promise<Discord.Message> {
@@ -936,7 +950,6 @@ async function send_quiet_impl(
 
   let message: Discord.Message;
   try {
-    reply_parent = null; // XXX: lol
     if (reply_parent) {
       message = await reply_parent.reply(head);
       for (const item of tail) {
@@ -961,7 +974,7 @@ async function send_quiet_impl(
  * Wrappers around send_quiet_impl() which perform message chunking.
  */
 function send_quiet(
-  channel: Discord.TextChannel | Discord.NewsChannel | Discord.DMChannel,
+  channel: Discord.TextBasedChannels,
   content: MessageContent,
   reply_parent?: Discord.Message,
 ): Promise<Discord.Message> {
@@ -1018,7 +1031,7 @@ async function try_delete(
 ): Promise<void> {
   if (from_dm(msg)) return;
   try {
-    await msg.delete({timeout: wait});
+    setTimeout(() => msg.delete(), wait);
   } catch (e) {
     console.error(e);
   }
@@ -2645,11 +2658,13 @@ async function send_raid_report_notif(
   if (!found_one) return;
   const [raid] = rows;
 
+  const is_m = await is_member(guild(), msg.author);
+
   const output =
     raid_report_notif(raid) + ` (${verbed} ` +
     (anon
       ? 'anonymously'
-      : `by ${is_member(guild(), msg.author) ? msg.author : msg.author.tag}`
+      : `by ${is_m ? msg.author : msg.author.tag}`
     ) + ').';
 
   await send_for_region(raid.region, output);
@@ -3775,20 +3790,20 @@ async function create_ex_room(
       { // Make sure Moltres can modify the channel.
         id: moltres.user.id,
         allow: [
-          'VIEW_CHANNEL',
-          'MANAGE_CHANNELS',
-          'MANAGE_ROLES',
-          'MANAGE_MESSAGES',
+          Discord.Permissions.FLAGS.VIEW_CHANNEL,
+          Discord.Permissions.FLAGS.MANAGE_CHANNELS,
+          Discord.Permissions.FLAGS.MANAGE_ROLES,
+          Discord.Permissions.FLAGS.MANAGE_MESSAGES,
         ],
       },
       { // Hide the channel from members who haven't entered this EX room.
         id: guild().id,
-        deny: ['VIEW_CHANNEL'],
+        deny: [Discord.Permissions.FLAGS.VIEW_CHANNEL],
       },
     ]);
 
   let room = await guild().channels.create(room_name, {
-    type: 'text',
+    type: 'GUILD_TEXT',
     permissionOverwrites: permissions,
   });
   room = await room.setTopic(
@@ -3807,7 +3822,10 @@ async function enter_ex_room(
   uid: Discord.Snowflake,
   room: Discord.TextChannel,
 ): Promise<any> {
-  room = await room.updateOverwrite(uid, {VIEW_CHANNEL: true});
+  room = await room.permissionOverwrites.edit(
+    uid, {VIEW_CHANNEL: true}
+  ) as Discord.TextChannel;
+
   const user = await moltres.users.fetch(uid);
   return send_quiet(room, `Welcome ${user} to the room!`);
 }
@@ -3815,18 +3833,20 @@ function exit_ex_room(
   uid: Discord.Snowflake,
   room: Discord.TextChannel,
 ): Promise<any> {
-  return room.permissionOverwrites.get(uid).delete();
+  return room.permissionOverwrites.delete(uid);
 }
 
 /*
  * Return whether `channel' is an EX raid room.
  */
-function is_ex_room(channel: Discord.DMChannel | Discord.GuildChannel): boolean {
-  if (channel.type === 'dm') return false;
-  channel = channel as Discord.GuildChannel;
+function is_ex_room(
+  channel_: Discord.Channel | Discord.TextBasedChannels
+): boolean {
+  if (channel_.type !== 'GUILD_TEXT') return false;
+  const channel = channel_ as Discord.GuildChannel;
 
   if ('category' in config.ex) {
-    return channel.parentID === config.ex.category;
+    return channel.parentId === config.ex.category;
   }
   // Guess based on the format of EX room names.
   return !!channel.name.match(ex_room_regex);
@@ -3839,7 +3859,7 @@ function is_ex_room(channel: Discord.DMChannel | Discord.GuildChannel): boolean 
  * not added to the room by Moltres configuration.
  */
 function ex_raiders(room: Discord.TextChannel): Promise<Discord.User[]> {
-  const uids = new Set([...room.permissionOverwrites.keys()]);
+  const uids = new Set([...room.permissionOverwrites.cache.keys()]);
 
   for (const overwrite of config.ex.permissions) {
     uids.delete(overwrite.id);
@@ -3964,7 +3984,7 @@ async function handle_ex(
 
 async function handle_explore(msg: Discord.Message): Promise<any> {
   const room_info = new Map(guild().channels.cache
-    .filter(is_ex_room)
+    .filter((chan, ..._) => is_ex_room(chan))
     .map(room_ => {
       const room = room_ as Discord.TextChannel;
       const [, , time] = room.topic.match(ex_topic_capture);
@@ -4010,7 +4030,7 @@ async function handle_explore(msg: Discord.Message): Promise<any> {
 async function handle_exit(msg: Discord.Message): Promise<any> {
   // If a user has a permission overwrite, they're in the room.
   const channel = msg.channel as Discord.TextChannel;
-  const in_room = !!channel.permissionOverwrites.get(msg.author.id);
+  const in_room = !!channel.permissionOverwrites.resolve(msg.author.id);
 
   if (!in_room) {
     return log_invalid(msg,
@@ -4037,12 +4057,13 @@ async function handle_examine(msg: Discord.Message): Promise<any> {
   const users = await ex_raiders(channel);
 
   return send_quiet(channel, {
-    embed: new Discord.MessageEmbed()
+    embeds: [new Discord.MessageEmbed()
       .setTitle(
         `**List of EX raiders** for \`${ex.handle}\` on ${ex.month} ${ex.day}`
       )
       .setDescription(users.map(user => user.tag).join('\n'))
       .setColor('RED')
+    ]
   });
 }
 
@@ -4090,7 +4111,7 @@ function handle_expunge(
   const expected = ex_format_date(date);
 
   const rooms = guild().channels.cache
-    .filter(is_ex_room)
+    .filter((chan, ..._) => is_ex_room(chan))
     .filter(room => ex_room_matches_date(room.name, expected));
 
   return Promise.all(rooms.map(room => room.delete()));
@@ -4359,7 +4380,7 @@ _Channel:_  #${from_dm(msg)
 /*
  * Main reader event.
  */
-moltres.on('message', async (msg: Discord.Message) => {
+moltres.on('messageCreate', async (msg: Discord.Message) => {
   if (msg.channel.id in config.channels ||
       config.ex.channels.has(msg.channel.id) ||
       from_dm(msg) || is_ex_room(msg.channel)) {
