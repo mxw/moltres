@@ -44,6 +44,7 @@ export class AsyncConnection {
       return OK(result as QuerySuccess<T>);
     } catch (err) {
       if (!err.fatal &&
+          err.message !== "Can't add new command when connection is in closed state" &&
           err.code !== 'EPIPE' &&
           err.code !== 'PROTOCOL_CONNECTION_LOST') {
         return Err(err);
