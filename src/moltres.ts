@@ -190,7 +190,7 @@ type Req =
 
   | 'call'
   | 'cancel'
-  | 'change-time'
+  | 'change'
   | 'join'
   | 'unjoin'
   | 'ping'
@@ -213,7 +213,7 @@ const req_order: (Req | null)[] = [
   'add-gym', 'edit-gym', 'mv-gym', null,
   'gym', 'ls-gyms', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', 'ls-bosses', null,
-  'call', 'cancel', 'change-time', 'join', 'unjoin', 'ping', null,
+  'call', 'cancel', 'change', 'join', 'unjoin', 'ping', null,
   'ex', 'exit', 'examine', 'exact', 'exclaim', 'explore', 'expunge', 'exalt',
 ];
 
@@ -233,9 +233,9 @@ const req_to_perm: Partial<Record<Req, string>> = {
   'egg':    'report',
   'boss':   'report',
   'update': 'report',
-  'call':        'call',
-  'cancel':      'call',
-  'change-time': 'call',
+  'call':   'call',
+  'cancel': 'call',
+  'change': 'call',
 };
 
 interface ReqDesc {
@@ -615,7 +615,7 @@ const reqs: Record<Req, ReqDesc> = {
       'galaxy 1:42': 'Cancel the 1:42 p.m. raid at **Galaxy: Earth Sphere**.',
     },
   },
-  'change-time': {
+  'change': {
     perms: Permission.BLACKLIST,
     access: Access.REGION,
     usage: '<gym-handle-or-name> <current-HH:MM> to <desired-HH:MM>',
@@ -796,6 +796,7 @@ const req_aliases: Record<string, Req> = {
   'u':            'update',
   'regions':      'ls-regions',
   'call-time':    'call',
+  'change-time':  'change',
   'uncall':       'cancel',
   'j':            'join',
 };
@@ -3437,7 +3438,7 @@ async function handle_cancel(
   return send_for_region(gyms.region, output);
 }
 
-async function handle_change_time(
+async function handle_change(
   msg: Discord.Message,
   handle: string,
   current_: TimeSpec | InvalidArg,
@@ -3451,7 +3452,7 @@ async function handle_change_time(
     return log_invalid(msg, `Unrecognized HH:MM time \`${desired_.arg}\`.`);
   }
   if (to !== 'to') {
-    return log_invalid(msg, usage_string('change-time'));
+    return log_invalid(msg, usage_string('change'));
   }
   const current = await interpret_time(current_, handle);
   const desired = await interpret_time(desired_, handle);
@@ -3480,7 +3481,7 @@ async function handle_change_time(
 
   if (result.ok.affectedRows === 0) {
     const {call_row, gym} =
-      await query_for_error_call(msg, handle, current, 'change-time');
+      await query_for_error_call(msg, handle, current, 'change');
     if (!call_row) return;
 
     const {raids} = call_row;
@@ -4264,7 +4265,7 @@ async function handle_request(
     // @ts-ignore
     case 'cancel':    return handle_cancel(msg, ...argv);
     // @ts-ignore
-    case 'change-time': return handle_change_time(msg, ...argv);
+    case 'change':    return handle_change(msg, ...argv);
     // @ts-ignore
     case 'join':      return handle_join(msg, ...argv);
     // @ts-ignore
