@@ -3509,9 +3509,18 @@ async function handle_change_time(
   const {gyms} = row;
   handle = gyms.handle;
 
-  // Move the join message cache entry.
+  // Rewrite the join and call message cache entries.
   join_cache_set(handle, desired, join_cache_get(handle, current));
   join_cache_set(handle, current, null);
+
+  const old_key = raid_cache_key(handle, current);
+  const new_key = raid_cache_key(handle, desired);
+  call_cache_rev[new_key] = call_cache_rev[old_key];
+  delete call_cache_rev[old_key];
+
+  for (const call_msg of call_cache_rev[new_key]) {
+    call_cache[call_msg.id].call_time = desired;
+  }
 
   const users = raiders
     .map(r => r.member.user)
