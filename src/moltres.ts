@@ -25,10 +25,12 @@ import * as Config from 'moltres-config'
 let config: typeof Config = require('moltres-config');
 let { emoji_by_name } = require('util/emoji');
 let channels_for_region = compute_region_channel_map();
+let channels_for_boss = compute_boss_channel_map();
 let tz_for_region = compute_region_tz_map();
 
 interface RaidData {
   raid_tiers: Record<string, number>;
+  boss_roles: Record<string, string>;
   bosses_for_tier: string[][];
   raid_trie: Trie;
   boss_defaults: Record<number, string>;
@@ -76,13 +78,14 @@ mysql.connect({
     console.error(`Could not read raid bosses table.`);
     process.exit(1);
   }
-  const {raid_tiers, boss_defaults} = result.ok;
+  const {raid_tiers, boss_roles, boss_defaults} = result.ok;
 
   raid_data = {
-    raid_tiers: raid_tiers,
+    raid_tiers,
+    boss_roles,
     bosses_for_tier: compute_tier_boss_map(raid_tiers),
     raid_trie: trie(Object.keys(raid_tiers)),
-    boss_defaults: boss_defaults,
+    boss_defaults,
   };
   moltres.login(config.moltres);
 })
@@ -167,6 +170,7 @@ type Req =
   | 'add-boss'
   | 'rm-boss'
   | 'def-boss'
+  | 'set-boss-role'
 
   | 'add-gym'
   | 'edit-gym'
@@ -209,7 +213,8 @@ type Req =
  */
 const req_order: (Req | null)[] = [
   'help', null,
-  'set-perm', 'ls-perms', 'add-boss', 'rm-boss', 'def-boss', null,
+  'set-perm', 'ls-perms', null,
+  'add-boss', 'rm-boss', 'def-boss', 'set-boss-role', null,
   'add-gym', 'edit-gym', 'mv-gym', null,
   'gym', 'ls-gyms', 'ls-regions', null,
   'raid', 'ls-raids', 'egg', 'boss', 'update', 'scrub', 'ls-bosses', null,
@@ -223,6 +228,7 @@ const req_to_perm: Partial<Record<Req, string>> = {
   'add-boss': 'boss-table',
   'rm-boss':  'boss-table',
   'def-boss': 'boss-table',
+  'set-boss-role': 'boss-table',
   'add-gym':  'gym-table',
   'edit-gym': 'gym-table',
   'mv-gym':   'gym-table',
@@ -269,7 +275,7 @@ const reqs: Record<Req, ReqDesc> = {
   'set-perm': {
     perms: Permission.WHITELIST,
     access: Access.ALL,
-    usage: '<user> <request>',
+    usage: '<@user> <request>',
     args: [Arg.STR, Arg.STR],
     desc: 'Enable others to use more (or fewer) requests.',
     detail: [
@@ -288,6 +294,7 @@ const reqs: Record<Req, ReqDesc> = {
     examples: {
     },
   },
+
   'add-boss': {
     perms: Permission.WHITELIST,
     access: Access.ALL,
@@ -325,6 +332,17 @@ const reqs: Record<Req, ReqDesc> = {
     examples: {
       'rayquaza': 'Celebrate Rayquaza\'s return as the default T5!',
       '5': 'Alas, T5 bosses are a mystery.',
+    },
+  },
+  'set-boss-role': {
+    perms: Permission.WHITELIST,
+    access: Access.ALL,
+    usage: '<boss> <@role>',
+    args: [Arg.STR, -Arg.STR],
+    desc: 'Make a raid boss the default boss for its tier.',
+    detail: [],
+    examples: {
+      'yveltal @Yveltal': 'Pretty self-explanatory.',
     },
   },
 
@@ -811,23 +829,28 @@ const gyaoo = 'Gyaoo!';
  */
 async function read_bosses_table(): Promise<Result<{
   raid_tiers: Record<string, number>,
-  boss_defaults: Record<number, string>
+  boss_roles: Record<string, string>,
+  boss_defaults: Record<number, string>,
 }, mysql.QueryError>> {
   const result = await moltresdb.query<Boss>(
     'SELECT * FROM bosses'
   );
   if (isErr(result)) return result;
 
-  const raid_tiers: Record<string, number> = {};
-  const boss_defaults: Record<number, string> = [];
+  const raid_tiers: RaidData['raid_tiers'] = {};
+  const boss_roles: RaidData['boss_roles'] = {};
+  const boss_defaults: RaidData['boss_defaults'] = [];
 
   for (const row of result.ok) {
     if (row.is_default) {
       boss_defaults[row.tier] = row.boss;
     }
+    if (row.role_id) {
+      boss_roles[row.boss] = row.role_id;
+    }
     raid_tiers[row.boss] = row.tier;
   }
-  return OK({raid_tiers, boss_defaults});
+  return OK({raid_tiers, boss_roles, boss_defaults});
 }
 
 /*
@@ -873,6 +896,27 @@ function compute_region_channel_map(): Record<string, Discord.Snowflake[]> {
   const out: Record<string, Discord.Snowflake[]> = {};
   for (const region in ret) {
     out[region] = [...ret[region]];
+  }
+  return out;
+}
+
+/*
+ * Invert the boss-to-region map.
+ */
+function compute_boss_channel_map(): Record<string, Discord.Snowflake[]> {
+  const ret: Record<string, Set<Discord.Snowflake>> = {};
+
+  for (const chan in config.boss_channels) {
+    const bosses = config.boss_channels[chan];
+    for (const boss of bosses) {
+      ret[boss] = ret[boss] ?? new Set();
+      ret[boss].add(chan);
+    }
+  }
+
+  const out: Record<string, Discord.Snowflake[]> = {};
+  for (const boss in ret) {
+    out[boss] = [...ret[boss]];
   }
   return out;
 }
@@ -1005,22 +1049,6 @@ async function dm_quiet(
     log_impl(`Problem sending a message to ${user.tag}.`);
     console.error(e);
   }
-}
-
-/*
- * Send `content' to all the channels for `region'.
- */
-function send_for_region(
-  region: string,
-  content: string
-): Promise<Discord.Message[]> {
-  const channels = channels_for_region[region];
-  if (!channels) return;
-
-  return Promise.all(channels.map(async (chan_id) => {
-    const chan = await moltres.channels.fetch(chan_id);
-    return send_quiet(chan as Discord.TextChannel, content);
-  }));
 }
 
 /*
@@ -1289,6 +1317,7 @@ interface Boss {
   boss: string;
   tier: number;
   is_default: boolean;
+  role_id: Discord.Snowflake;
 }
 
 interface PermissionRow {
@@ -2242,6 +2271,45 @@ async function handle_def_boss(
   return react_success(msg);
 }
 
+async function handle_set_boss_role(
+  msg: Discord.Message,
+  boss: string,
+  role_tag: string | null,
+): Promise<any> {
+  if (!(boss in raid_data.raid_tiers)) {
+    return log_invalid(msg, `Unregistered raid boss \`${boss}\`.`);
+  }
+
+  if (role_tag !== null && (
+        !role_tag.match(Discord.MessageMentions.ROLES_PATTERN) ||
+        msg.mentions.roles.size !== 1
+      )) {
+    return log_invalid(msg, `Invalid user tag \`${role_tag}\`.`);
+  }
+
+  const role_id = role_tag !== null
+    ? msg.mentions.roles.first().id
+    : null;
+
+  const result = await moltresdb.query<mysql.UpdateResult>(
+    'UPDATE bosses SET `role_id` = ? WHERE `boss` = ?',
+    [role_id, boss]
+  );
+  if (isErr(result)) return log_mysql_error(msg, result.err);
+
+  if (result.ok.affectedRows === 0) {
+    return log_invalid(msg, 'Unknown failure.');
+  }
+
+  if (role_id) {
+    raid_data.boss_roles[boss] = role_id;
+  } else {
+    delete raid_data.boss_roles[boss];
+  }
+
+  return react_success(msg);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Developer handlers.
 
@@ -2252,6 +2320,7 @@ function handle_reload_config(msg: Discord.Message): Promise<any> {
   config = require('moltres-config');
   emoji_by_name = require('util/emoji').emoji_by_name;
   channels_for_region = compute_region_channel_map();
+  channels_for_boss = compute_boss_channel_map();
   tz_for_region = compute_region_tz_map();
 
   return react_success(msg);
@@ -2612,15 +2681,38 @@ function fmt_boss(boss: string): string {
  */
 function fmt_tier_boss(raid: Raid): string {
   const tier = raid.tier;
+  const boss = raid.boss ?? raid_data.boss_defaults[tier] ?? null;
 
-  const boss = raid.boss !== null
-    ? fmt_boss(raid.boss)
-    : (tier < raid_data.bosses_for_tier.length &&
-       raid_data.boss_defaults[tier])
-        ? fmt_boss(raid_data.boss_defaults[tier])
-        : 'unknown';
+  return `${fmt_tier(tier)} ${boss ? fmt_boss(boss) : 'unknown'}`;
+}
 
-  return `${fmt_tier(tier)} ${boss}`;
+/*
+ * Broadcast `content' to all the channels for `raid' at `gym`.
+ */
+function broadcast_for_raid(
+  gym: Gym,
+  raid: Raid | null,
+  content: string,
+  alt_content: string = content,
+): Promise<Discord.Message[]> {
+  const channels = channels_for_region[gym.region];
+
+  const boss = raid.boss ?? raid_data.boss_defaults[raid.tier];
+  const boss_channels = channels_for_boss[boss];
+
+  if (!channels && !boss_channels) return;
+
+  const region_sends = (channels ?? []).map(async (chan_id) => {
+    const chan = await moltres.channels.fetch(chan_id);
+    return send_quiet(chan as Discord.TextChannel, content);
+  });
+
+  const boss_sends = (boss_channels ?? []).map(async (chan_id) => {
+    const chan = await moltres.channels.fetch(chan_id);
+    return send_quiet(chan as Discord.TextChannel, alt_content);
+  });
+
+  return Promise.all(region_sends.concat(boss_sends));
 }
 
 /*
@@ -2668,7 +2760,7 @@ async function send_raid_report_notif(
       : `by ${is_m ? msg.author : msg.author.tag}`
     ) + ').';
 
-  await send_for_region(raid.region, output);
+  await broadcast_for_raid(raid, raid, output);
 
   return from_dm(msg)
     ? dm_quiet(msg.author, output)
@@ -3033,7 +3125,7 @@ async function handle_scrub(
   const spotter = await guild().members.fetch(raid.spotter);
   const spotter_name = spotter ? spotter.toString() : '[unknown user]';
 
-  return send_for_region(raid.region,
+  return broadcast_for_raid(raid, raid,
     `${get_emoji('banned')} Raid reported by ${spotter_name} ` +
     `at ${gym_name(raid)} was scrubbed.`
   );
@@ -3178,11 +3270,12 @@ async function make_raid_alarm(
 }
 
 /*
- * Set a timeout to ping raiders for `gym' before `call_time'.
+ * Set a timeout to ping raiders for `raid' at `gym` before `call_time'.
  */
 function set_raid_alarm(
   msg: Discord.Message,
   gym: Gym,
+  raid: Raid,
   call_time: Date,
 ): Promise<any> {
   // This doesn't really belong here, but we set alarms every time we modify a
@@ -3197,7 +3290,7 @@ function set_raid_alarm(
 
   setTimeout(async function() {
     const output = await make_raid_alarm(msg, gym, call_time);
-    const alarm_msgs = await send_for_region(gym.region, output);
+    const alarm_msgs = await broadcast_for_raid(gym, raid, output);
 
     // The join cache might not have been populated if nobody else joined...
     const j_ent = join_cache_get(gym.handle, call_time);
@@ -3343,25 +3436,50 @@ async function handle_call(
   if (!found_one) return;
   const [raid] = rows;
 
-  const region_str = await async function() {
+  const region_role = await function() {
     const role_id = config.regions[raid.region];
-    if (!role_id) return raid.region;
-
-    const role = await msg.guild.roles.fetch(role_id);
-    if (!role) return raid.region;
-
-    return raid.silent ? role.name : role.toString();
+    return role_id ? msg.guild.roles.fetch(role_id) : null;
   }();
 
-  const output = get_emoji('clock230') + ' ' +
-    `${region_str} **${fmt_tier_boss(raid)}** raid ` +
+  const prefix = get_emoji('clock230');
+  const suffix =
     `at ${gym_name(raid)} ` +
     `called for ${time_str(call_time, raid.region)} ` +
     `by ${msg.author}.  ${gyaoo}` +
     make_join_instrs(raid, raid, call_time);
 
+  const content_with_mentions = async (
+    mention_region: boolean,
+    mention_boss: boolean
+  ) => {
+    const region_str = region_role
+      ? mention_region
+        ? region_role.toString()
+        : region_role.name
+      : raid.region;
+
+    const boss = raid.boss ?? raid_data.boss_defaults[raid.tier] ?? null;
+    const boss_str = await async function() {
+      if (boss === null) return 'unknown';
+      if (!mention_boss) return fmt_boss(boss);
+
+      const role_id = raid_data.boss_roles[boss];
+      const role = role_id ? await msg.guild.roles.fetch(role_id) : null;
+
+      return role?.toString() ?? fmt_boss(boss);
+    }();
+
+    const raid_str = `**${fmt_tier(raid.tier)} ${boss_str}** raid`;
+
+    return `${prefix} ${region_str} ${raid_str} ${suffix}`;
+  };
+
   const broadcast_call = async function() {
-    const call_msgs = await send_for_region(raid.region, output);
+    const call_msgs = await broadcast_for_raid(
+      raid, raid,
+      await content_with_mentions(!raid.silent, false),
+      await content_with_mentions(false, true),
+    );
     await Promise.all(call_msgs.map(m => m.react(get_emoji('join', true))));
 
     const call_ids = call_msgs.map(m => m.id);
@@ -3381,7 +3499,7 @@ async function handle_call(
 
   return Promise.all([
     broadcast_call(),
-    set_raid_alarm(msg, raid, call_time),
+    set_raid_alarm(msg, raid, raid, call_time),
   ]);
 }
 
@@ -3435,7 +3553,7 @@ async function handle_cancel(
   if (users.length !== 0) {
     output += `\n\nPaging other raiders: ${users.join(' ')}.`;
   }
-  return send_for_region(gyms.region, output);
+  return broadcast_for_raid(gyms, raids, output);
 }
 
 async function handle_change(
@@ -3537,8 +3655,8 @@ async function handle_change(
     output += `\n\nPaging other raiders: ${users.join(' ')}.`;
   }
   return Promise.all([
-    send_for_region(gyms.region, output),
-    set_raid_alarm(msg, gyms, desired),
+    broadcast_for_raid(gyms, row.raids, output),
+    set_raid_alarm(msg, gyms, row.raids, desired),
   ]);
 }
 
@@ -3630,7 +3748,7 @@ async function handle_join(
         target => send_quiet(target.channel, output, target)
       ));
     }
-    return send_for_region(gyms.region, output);
+    return broadcast_for_raid(gyms, raids, output);
   })();
 
   // Clear any existing join message for this raid.
@@ -4160,7 +4278,8 @@ function has_access(msg: Discord.Message, request: Req): boolean {
       config.admin_ids.has(msg.author.id)
     );
   }
-  if (msg.channel.id in config.channels) {
+  if (msg.channel.id in config.channels ||
+      msg.channel.id in config.boss_channels) {
     if (access & Access.REGION) return true;
   }
   if (config.ex.channels.has(msg.channel.id)) {
@@ -4223,6 +4342,8 @@ async function handle_request(
     case 'rm-boss':   return handle_rm_boss(msg, ...argv);
     // @ts-ignore
     case 'def-boss':  return handle_def_boss(msg, ...argv);
+    // @ts-ignore
+    case 'set-boss-role': return handle_set_boss_role(msg, ...argv);
 
     // @ts-ignore
     case 'reload-config': return handle_reload_config(msg, ...argv);
@@ -4392,6 +4513,7 @@ _Channel:_  #${from_dm(msg)
  */
 moltres.on('messageCreate', async (msg: Discord.Message) => {
   if (msg.channel.id in config.channels ||
+      msg.channel.id in config.boss_channels ||
       config.ex.channels.has(msg.channel.id) ||
       from_dm(msg) || is_ex_room(msg.channel)) {
     try {

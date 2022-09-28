@@ -68,6 +68,11 @@ declare const log_id: Discord.Snowflake;
  */
 declare const channels: Record<Discord.Snowflake, string[]>;
 
+/*
+ * Like `channels` but for bosses and boss roles in the db.
+ */
+declare const boss_channels: Record<Discord.Snowflake, string[]>;
+
 ///////////////////////////////////////////////////////////////////////////////
 
 /*

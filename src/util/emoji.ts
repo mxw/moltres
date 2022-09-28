@@ -3,6 +3,7 @@
  */
 export const emoji_by_name = {
   alarm_clock: '⏰',
+  bubble_tea: '🧋',
   bug: '🐛',
   clock230: '🕝',
   cry: '😢',

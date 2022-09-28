@@ -65,5 +65,6 @@ CREATE TABLE `bosses` (
   `boss` char(16) NOT NULL,
   `tier` tinyint(3) unsigned NOT NULL,
   `is_default` tinyint(1) NOT NULL DEFAULT '0',
+  `role_id` bigint(20) unsigned DEFAULT NULL,
   PRIMARY KEY (`boss`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
