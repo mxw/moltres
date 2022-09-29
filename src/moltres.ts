@@ -153,8 +153,9 @@ enum Access {
  */
 enum Mod {
   NONE = 0,
-  FORCE = 1 << 0,
-  ANON = 1 << 1,
+  FORCE = 1 << 0,     // force override
+  ANON = 1 << 1,      // anonymous
+  PRESERVE = 1 << 2,  // preserve user message
 };
 
 const modifier_map: Record<string, Mod> = {
@@ -511,8 +512,8 @@ const reqs: Record<Req, ReqDesc> = {
   'egg': {
     perms: Permission.BLACKLIST,
     access: Access.REGION_DM,
-    usage: '<gym-handle-or-name> <tier> <time-til-hatch [HH:]MM:SS>',
-    args: [Arg.VARIADIC, Arg.TIER, Arg.TIMER],
+    usage: '<gym-handle-or-name> <tier> <time-til-hatch [HH:]MM:SS> [HH:MM]',
+    args: [Arg.VARIADIC, Arg.TIER, Arg.TIMER, -Arg.HOURMIN],
     mod_mask: Mod.FORCE | Mod.ANON,
     desc: 'Report a raid egg.',
     detail: [
@@ -522,7 +523,9 @@ const reqs: Record<Req, ReqDesc> = {
       'modifiers:\n\t`$egg!` allows you to override an existing raid report',
       '(e.g., if it\'s incorrect).\n\t`$egg?` prevents your username from',
       'being included in raid report messages.\n\nThe two may be used in',
-      'conjunction.',
+      'conjunction.\n\nIt\'s possible to attach a `$call` to a raid report',
+      'using an additional HH:MM argument for your desired time _after_ the',
+      'countdown timer.  Use `$help call` for more information.',
     ],
     examples: {
       'galaxy-sphere 5 3:35':
@@ -534,8 +537,8 @@ const reqs: Record<Req, ReqDesc> = {
   'boss': {
     perms: Permission.BLACKLIST,
     access: Access.REGION_DM,
-    usage: '<gym-handle-or-name> <boss> <time-til-despawn [HH:]MM:SS>',
-    args: [Arg.VARIADIC, Arg.BOSS, Arg.TIMER],
+    usage: '<gym-handle-or-name> <boss> <time-til-despawn [HH:]MM:SS> [HH:MM]',
+    args: [Arg.VARIADIC, Arg.BOSS, Arg.TIMER, -Arg.HOURMIN],
     mod_mask: Mod.FORCE | Mod.ANON,
     desc: 'Report a hatched raid boss.',
     detail: [
@@ -546,7 +549,10 @@ const reqs: Record<Req, ReqDesc> = {
       'handles.\n\n`$boss` also accepts two modifiers:\n\t`$boss!` allows',
       'you to override an existing raid report (e.g., if it\'s incorrect).\n\t',
       '`$boss?` prevents your username from being included in raid report',
-      'messages.\n\nThe two may be used in conjunction.',
+      'messages.\n\nThe two may be used in conjunction.\n\nIt\'s possible',
+      'to attach a `$call` to a raid report using an additional HH:MM',
+      'argument for your desired time _after_ the countdown timer.  Use',
+      '`$help call` for more information.',
     ],
     examples: {
       'galaxy-sphere alolan-exeggutor 3:35':
@@ -615,6 +621,7 @@ const reqs: Record<Req, ReqDesc> = {
                      'for **Galaxy: Earth Sphere**.',
       'galaxy 1:42 2': 'Same as above, but indicate that you\'re coming ' +
                        'with +2 extra people.',
+      'galaxy hatch': 'As above, but set the time as whenever the egg hatches.',
     },
   },
   'cancel': {
@@ -2737,7 +2744,7 @@ async function send_raid_report_notif(
   msg: Discord.Message,
   handle: string,
   verbed: string,
-  anon: boolean = false,
+  mods: Mod,
 ): Promise<any> {
   const result = await moltresdb.query<Gym & Raid>(
     'SELECT * FROM gyms ' +
@@ -2755,7 +2762,7 @@ async function send_raid_report_notif(
 
   const output =
     raid_report_notif(raid) + ` (${verbed} ` +
-    (anon
+    (!!(mods & Mod.ANON)
       ? 'anonymously'
       : `by ${is_m ? msg.author : msg.author.tag}`
     ) + ').';
@@ -2764,7 +2771,9 @@ async function send_raid_report_notif(
 
   return from_dm(msg)
     ? dm_quiet(msg.author, output)
-    : try_delete(msg, 10000);
+    : !(mods & Mod.PRESERVE)
+      ? try_delete(msg, 10000)
+      : null;
 }
 
 async function handle_raid(
@@ -3000,32 +3009,42 @@ async function handle_report(
       `Raid already reported for ${gym_name(gym)}.`
     );
   }
-  return send_raid_report_notif(msg, handle, 'reported', !!(mods & Mod.ANON));
+  return send_raid_report_notif(msg, handle, 'reported', mods);
 }
 
-function handle_egg(
+async function handle_egg(
   msg: Discord.Message,
   handle: string,
   tier: number | InvalidArg,
   timer: Timer | InvalidArg,
+  call_time: TimeSpec | InvalidArg | null,
   mods: Mod,
 ): Promise<any> {
-  return handle_report(msg, handle, tier, null, timer, mods);
+  if (call_time === null) {
+    return handle_report(msg, handle, tier, null, timer, mods);
+  }
+  await handle_report(msg, handle, tier, null, timer, mods | Mod.PRESERVE);
+  return handle_call(msg, handle, call_time, null);
 }
 
-function handle_boss(
+async function handle_boss(
   msg: Discord.Message,
   handle: string,
   boss: BossResult | InvalidArg,
   timer: Timer | InvalidArg,
+  call_time: TimeSpec | InvalidArg | null,
   mods: Mod,
 ): Promise<any> {
   if (boss instanceof InvalidArg) {
     return log_invalid(msg, `Unrecognized raid boss \`${boss.arg}\`.`);
   }
-  return handle_report(
-    msg, handle, raid_data.raid_tiers[boss.boss], boss, timer, mods
-  );
+  const tier = raid_data.raid_tiers[boss.boss];
+
+  if (call_time === null) {
+    return handle_report(msg, handle, tier, boss, timer, mods);
+  }
+  await handle_report(msg, handle, tier, boss, timer, mods | Mod.PRESERVE);
+  return handle_call(msg, handle, call_time, null);
 }
 
 async function handle_update(
@@ -3090,7 +3109,7 @@ async function handle_update(
     return send_quiet(msg.channel, 'Your update made no changes.');
   }
   if ('tier' in assignment) {
-    return send_raid_report_notif(msg, handle, 'updated', !!(mods & Mod.ANON));
+    return send_raid_report_notif(msg, handle, 'updated', mods);
   }
   return react_success(msg);
 }
